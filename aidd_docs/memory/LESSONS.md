@@ -84,3 +84,27 @@ Les exemples utilisaient parfois `axe / valeur` (FR) et parfois `axis / value` (
 `issues-analysis.md` était un snapshot pré-pivot ; le supprimer aurait perdu le contexte historique, le garder tel quel aurait induit en erreur. La solution : bandeau d'obsolescence en tête + correction des références les plus cassantes + reste du contenu préservé comme trace.
 
 **Leçon** : pour les snapshots historiques, ni purge ni laisser-faire — un bandeau explicite qui dit « ceci est un instantané daté, voir XYZ pour l'état courant » préserve l'archéologie sans coût pédagogique.
+
+## L13. spaCy : disable= est par modèle, pas partagé
+
+`fr_core_news_md` n'a pas de composant `tagger` — il utilise `morphologizer`. Passer `disable=["tagger", ...]` sur ce modèle lève `ValueError: [E007]` à l'initialisation. Les listes de composants diffèrent entre les modèles FR et EN.
+
+- FR : `disable=["morphologizer", "parser", "attribute_ruler", "lemmatizer"]`
+- EN : `disable=["tagger", "parser", "senter", "attribute_ruler", "lemmatizer"]`
+- Ne jamais désactiver `tok2vec` — il alimente `ner` en interne.
+
+**Leçon** : toujours définir `disable=` par modèle. Une liste partagée est un crash garanti dès qu'on charge un modèle d'une autre langue.
+
+## L14. Batch NLP : préserver l'ordre du compteur après nlp.pipe()
+
+Quand on batchise plusieurs textes avec `nlp.pipe()` par groupe de langue (FR d'abord, EN ensuite), le compteur `[PER_N]` s'incrémente dans l'ordre de traitement des groupes, pas dans l'ordre d'apparition des messages. Pour une session mixte `[fr, en, fr]`, le batch FR traite les messages 0 et 2 avant le message 1 (EN) — donc PER_2 = premier nom FR du message 2, pas le premier nom EN du message 1.
+
+**Fix** : stocker les docs dans `dict[int, Doc]` keyed par index original, puis itérer `range(len(messages))` pour assigner le compteur — l'ordre des messages d'origine est préservé.
+
+**Leçon** : le batch par groupe de langue est une optimisation d'inférence, pas un changement d'ordre sémantique. Les deux doivent être découplés.
+
+## L15. Ne pas supprimer une fonction testée lors d'une refacto de signature
+
+Quand on refactore la signature d'une fonction (`_replace_persons` : ajout de `doc: Doc | None = None`), les tests qui importent et appellent directement cette fonction continuent d'attendre l'ancienne interface. La supprimer et inliner la logique casse l'import des tests.
+
+**Leçon** : si des tests importent une fonction par nom, la garder avec sa signature étendue (paramètre optionnel). Ne la supprimer que si les tests sont mis à jour dans le même commit.
