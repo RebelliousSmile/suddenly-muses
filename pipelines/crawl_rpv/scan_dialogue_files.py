@@ -17,6 +17,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -91,8 +92,8 @@ class RenPyDialogueScanner:
         for branch in branches:
             url = f"https://api.github.com/repos/{self.github_repo}/git/trees/{branch}?recursive=1"
             headers = self._headers()
-            response = requests.get(url, headers=headers)
-            
+            response = requests.get(url, headers=headers, timeout=10.0)
+
             if response.status_code == 200:
                 tree = response.json().get('tree', [])
                 break
@@ -123,7 +124,7 @@ class RenPyDialogueScanner:
             # Récupérer le contenu
             raw_url = f"https://raw.githubusercontent.com/{self.github_repo}/{branch}/{path}"
             headers = self._headers()
-            response = requests.get(raw_url, headers=headers)
+            response = requests.get(raw_url, headers=headers, timeout=10.0)
             
             if response.status_code == 200:
                 content = response.text[:max_size]
@@ -135,7 +136,6 @@ class RenPyDialogueScanner:
             
             # Rate limiting
             if analyzed % 10 == 0:
-                import time
                 time.sleep(0.5)
         
         print(f"   ✅ {analyzed} fichiers avec dialogue trouvés")
@@ -274,9 +274,8 @@ def scan_github_repos(repo_list, token=None):
             print("❌ Aucun dialogue")
         
         # Rate limiting
-        import time
         time.sleep(1)
-    
+
     return results
 
 

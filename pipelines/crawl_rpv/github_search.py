@@ -58,12 +58,12 @@ def search_github(query, page=1, per_page=100):
         headers["Authorization"] = f"token {token}"
         params["per_page"] = 100  # 100 req/min sans token
     
-    response = requests.get(url, params=params, headers=headers)
-    
+    response = requests.get(url, params=params, headers=headers, timeout=10.0)
+
     if response.status_code == 403:
         print(f"⚠️  Rate limit GitHub. Utiliser GITHUB_TOKEN environ var.")
         return []
-    
+
     response.raise_for_status()
     return response.json()
 
@@ -88,12 +88,12 @@ def search_repositories(query, page=1, per_page=100):
     if token:
         headers["Authorization"] = f"token {token}"
     
-    response = requests.get(url, params=params, headers=headers)
-    
+    response = requests.get(url, params=params, headers=headers, timeout=10.0)
+
     if response.status_code == 403:
         print(f"⚠️  Rate limit GitHub. Utiliser GITHUB_TOKEN environ var.")
         return []
-    
+
     response.raise_for_status()
     return response.json()
 
@@ -143,11 +143,11 @@ def scan_rpy_files(repo_full_name, max_files=100):
         headers["Authorization"] = f"token {token}"
     
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, timeout=10.0)
         if response.status_code == 404:
             # Essayer master au lieu de main
             url = f"https://api.github.com/repos/{repo_full_name}/git/trees/master"
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=10.0)
         
         if response.status_code != 200:
             return []

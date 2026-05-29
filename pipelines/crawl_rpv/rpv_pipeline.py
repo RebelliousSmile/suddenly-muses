@@ -20,6 +20,7 @@ import os
 import random
 import re
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -72,8 +73,8 @@ class RenPyDialogueScanner:
         for branch in branches:
             url = f"https://api.github.com/repos/{repo_full_name}/git/trees/{branch}?recursive=1"
             headers = self._headers()
-            response = requests.get(url, headers=headers)
-            
+            response = requests.get(url, headers=headers, timeout=10.0)
+
             if response.status_code == 200:
                 tree = response.json().get('tree', [])
                 found_branch = branch
@@ -107,7 +108,7 @@ class RenPyDialogueScanner:
             # Récupérer le contenu
             raw_url = f"https://raw.githubusercontent.com/{repo_full_name}/{found_branch}/{path}"
             headers = self._headers()
-            response = requests.get(raw_url, headers=headers)
+            response = requests.get(raw_url, headers=headers, timeout=10.0)
             
             if response.status_code == 200:
                 content = response.text
@@ -125,7 +126,6 @@ class RenPyDialogueScanner:
             
             # Rate limiting
             if analyzed % 5 == 0:
-                import time
                 time.sleep(0.5)
         
         # Trier par score
@@ -279,9 +279,8 @@ def run_scan_mode(repos, token=None):
         else:
             print("❌ Pas de dialogue")
         
-        import time
         time.sleep(1)
-    
+
     return results
 
 
