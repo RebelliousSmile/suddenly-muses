@@ -3,11 +3,13 @@ from __future__ import annotations
 import spacy
 from langdetect import detect, LangDetectException
 from langdetect.detector_factory import DetectorFactory
+from spacy.tokens import Doc
 
 DetectorFactory.seed = 0
 
 _nlp_fr: spacy.language.Language | None = None
 _nlp_en: spacy.language.Language | None = None
+
 
 def _get_nlp_fr() -> spacy.language.Language:
     global _nlp_fr
@@ -37,55 +39,78 @@ def _detect_lang(text: str) -> str:
         return "fr"
 
 
+def _nlp_for(text: str) -> spacy.language.Language:
+    return _get_nlp_en() if _detect_lang(text) == "en" else _get_nlp_fr()
+
+
+def _replace_persons(
+    text: str,
+    mapping: dict[str, str],
+    counter: list[int],
+    doc: Doc | None = None,
+) -> str:
+    if not text or not text.strip():
+        return text
+    if doc is None:
+        nlp = _nlp_for(text)
+        doc = nlp(text)
+    persons = [ent for ent in doc.ents if ent.label_ == "PER"]
+    if not persons:
+        return text
+    result, cursor = [], 0
+    for ent in persons:
+        result.append(text[cursor : ent.start_char])
+        key = ent.text.lower()
+        if key not in mapping:
+            counter[0] += 1
+            mapping[key] = f"[PER_{counter[0]}]"
+        result.append(mapping[key])
+        cursor = ent.end_char
+    result.append(text[cursor:])
+    return "".join(result)
+
+
 def anonymize_session(messages: list[dict]) -> list[dict]:
     mapping: dict[str, str] = {}
-    counter = 0
-    result = list(messages)
+    counter: list[int] = [0]
 
-    processable = [
-        (i, msg["content"])
-        for i, msg in enumerate(messages)
-        if msg.get("role") != "system" and isinstance(msg.get("content"), str)
-    ]
-    if not processable:
-        return result
+    # Detect language upfront; collect eligible (non-system, non-empty string) messages
+    eligible: dict[int, tuple[str, str]] = {}
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "system" or not isinstance(msg.get("content"), str):
+            continue
+        text = msg["content"]
+        if text and text.strip():
+            eligible[i] = (text, _detect_lang(text))
 
-    indices_texts = processable
-    langs = [_detect_lang(t) for _, t in indices_texts]
-
-    fr_pairs = [(idx, t) for (idx, t), lang in zip(indices_texts, langs) if lang == "fr"]
-    en_pairs = [(idx, t) for (idx, t), lang in zip(indices_texts, langs) if lang == "en"]
-
-    anonymized: dict[int, str] = {}
-
-    def _apply_ner_batch(nlp: spacy.language.Language, pairs: list[tuple[int, str]]) -> None:
-        nonlocal counter
-        for (msg_idx, text), doc in zip(pairs, nlp.pipe([t for _, t in pairs], batch_size=50)):
-            persons = [ent for ent in doc.ents if ent.label_ == "PER"]
-            if not persons:
-                anonymized[msg_idx] = text
-                continue
-            parts, cursor = [], 0
-            for ent in persons:
-                parts.append(text[cursor : ent.start_char])
-                key = ent.text.lower()
-                if key not in mapping:
-                    counter += 1
-                    mapping[key] = f"[PER_{counter}]"
-                parts.append(mapping[key])
-                cursor = ent.end_char
-            parts.append(text[cursor:])
-            anonymized[msg_idx] = "".join(parts)
+    # Batch NER via nlp.pipe() per language; store docs keyed by original index
+    docs: dict[int, Doc] = {}
+    fr_pairs = [(i, t) for i, (t, lang) in eligible.items() if lang == "fr"]
+    en_pairs = [(i, t) for i, (t, lang) in eligible.items() if lang == "en"]
 
     if fr_pairs:
-        _apply_ner_batch(_get_nlp_fr(), fr_pairs)
+        for (idx, _), doc in zip(
+            fr_pairs, _get_nlp_fr().pipe([t for _, t in fr_pairs], batch_size=50)
+        ):
+            docs[idx] = doc
     if en_pairs:
-        _apply_ner_batch(_get_nlp_en(), en_pairs)
+        for (idx, _), doc in zip(
+            en_pairs, _get_nlp_en().pipe([t for _, t in en_pairs], batch_size=50)
+        ):
+            docs[idx] = doc
 
+    # Assign [PER_N] in original message order so numbering matches sequential behaviour
+    result = []
     for i, msg in enumerate(messages):
-        if i in anonymized:
-            result[i] = {**msg, "content": anonymized[i]}
-        else:
-            result[i] = dict(msg)
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+        if role == "system" or not isinstance(content, str):
+            result.append(dict(msg))
+            continue
+        if i not in docs:
+            result.append({**msg, "content": content})
+            continue
+        anonymized = _replace_persons(content, mapping, counter, doc=docs[i])
+        result.append({**msg, "content": anonymized})
 
     return result
