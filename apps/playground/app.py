@@ -15,9 +15,9 @@ Prérequis :
 
 from __future__ import annotations
 
+import json
 import os
 import random
-from typing import Optional
 
 import gradio as gr
 import httpx
@@ -31,6 +31,11 @@ from pipelines.evaluation.providers import (
 
 from .features import FEATURES, Feature
 from . import votes
+
+_http_client = httpx.Client(
+    timeout=httpx.Timeout(connect=5.0, read=10.0, write=5.0, pool=2.0),
+    limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
+)
 
 GATEWAY_URL = os.environ.get("SUDDENLY_HUB_URL", "https://muse.suddenly.social")
 
@@ -218,24 +223,26 @@ def _build_ab_tab():
 
 def _fetch_gateway() -> str:
     parts = [f"### Gateway : `{GATEWAY_URL}`\n"]
-    with httpx.Client(timeout=10.0) as client:
-        for endpoint in ("/v1/health", "/v1/models", "/v1/stats"):
-            try:
-                resp = client.get(f"{GATEWAY_URL}{endpoint}")
-                parts.append(f"**{endpoint}** → HTTP {resp.status_code}")
-                parts.append(f"```json\n{resp.text}\n```")
-            except httpx.RequestError as exc:
-                parts.append(f"**{endpoint}** → erreur : `{exc}`")
+    models_resp_text: str | None = None
+    for endpoint in ("/v1/health", "/v1/models", "/v1/stats"):
+        try:
+            resp = _http_client.get(f"{GATEWAY_URL}{endpoint}")
+            parts.append(f"**{endpoint}** → HTTP {resp.status_code}")
+            parts.append(f"```json\n{resp.text}\n```")
+            if endpoint == "/v1/models" and resp.is_success:
+                models_resp_text = resp.text
+        except httpx.RequestError as exc:
+            parts.append(f"**{endpoint}** → erreur : `{exc}`")
     parts.append("\n---")
     parts.append("**Couverture de la palette :**")
+    adapters: set[str] = set()
     try:
-        with httpx.Client(timeout=10.0) as client:
-            resp = client.get(f"{GATEWAY_URL}/v1/models")
-            data = resp.json()
-            adapters = set()
-            for m in data.get("data", []):
-                adapters.update(m.get("available_adapters", []))
-    except Exception as exc:
+        if models_resp_text is None:
+            raise ValueError("La requête /v1/models a échoué ou retourné une erreur HTTP")
+        data = json.loads(models_resp_text)
+        for m in data.get("data", []):
+            adapters.update(m.get("available_adapters", []))
+    except (ValueError, json.JSONDecodeError) as exc:
         parts.append(f"_Impossible de récupérer les adapters : {exc}_")
         return "\n".join(parts)
     for f in FEATURES:
