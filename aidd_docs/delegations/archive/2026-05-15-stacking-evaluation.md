@@ -1,3 +1,11 @@
+> ⛔ **OBSOLÈTE — NE PAS EXÉCUTER.** Archivé le 2026-06-03.
+>
+> Ce plan décrit une architecture **LoRA multi-adapters** (stacking PEFT, base Qwen2.5-7B, inférence GPU, providers Together/Fireworks) **supprimée par le pivot D14** (« pivot complet vers tables + ML léger »). Aucun des fichiers qu'il vise n'existe plus : `scripts/infer.py`, `scripts/list_models.py`, dossier `models/`, deps `peft`/`torch`/`transformers`. Muse recombine désormais des fragments JSONL de façon déterministe (CPU-only, zéro fine-tuning).
+>
+> Conservé uniquement comme **trace historique** de l'approche abandonnée.
+
+---
+
 # Stacking + Évaluation — Plan d'Implémentation
 
 > **For Hermes:** Execute task-by-task. Each task produces one commit.
