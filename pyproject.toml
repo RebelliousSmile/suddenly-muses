@@ -52,3 +52,7 @@ exclude = ["tests*", "venv*", "data*", "logs*", "aidd_docs*", "apps*"]
 pythonpath = ["."]
 tmp_path_retention_count = 3
 tmp_path_retention_policy = "failed"
+markers = [
+    "ml: tests de qualité ML / instance pleine",
+    "e2e: tests end-to-end via API",
+]

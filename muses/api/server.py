@@ -198,13 +198,14 @@ def create_app(
     - `rate_limit_per_minute=0` : pas de rate limit. Sinon limit par IP.
     """
     encoder = encoder or StubEncoder(dim=16)
-    orchestrator = Orchestrator(tables=tables, encoder=encoder)
 
     event_log = EventLog(event_log_path) if event_log_path else None
     trust_store = TrustStore(trust_db_path) if trust_db_path else None
     instance_store = InstanceReputationStore(instance_db_path) if instance_db_path else None
     style_store = StyleProfileStore(style_db_path) if style_db_path else None
     learner = OnlineLearner(learner_db_path) if learner_db_path else None
+
+    orchestrator = Orchestrator(tables=tables, encoder=encoder, style_store=style_store)
 
     sqlite_paths = [
         p for p in [trust_db_path, instance_db_path, style_db_path, learner_db_path]
