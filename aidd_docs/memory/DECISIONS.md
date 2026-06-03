@@ -110,6 +110,21 @@ Décisions structurantes prises lors du pivot LoRA → tables+ML (mai 2026). Cha
 - **Raisons** : la méthodologie de traduction de gros volumes a une valeur indépendante du pipeline LoRA originel, potentiellement réutilisable pour un futur tagging multilingue ou la traduction de corpus.
 - **Cf.** : commit de purge de la mémoire externe (`8b41c80`) qui conserve explicitement ce fichier alors que onze autres LoRA-era sont supprimés. Décision tracée dans le diff du commit lui-même.
 
+## D17. Suddenly AI Hub — validation schéma packet côté CN uniquement
+
+- **Décidé** : le Hub ne valide pas le schéma du `NarrateRequest`. Seul choix-narratifs valide le packet contre le schéma généré depuis `packet.rs`, avant d'envoyer au Hub. Le Hub vérifie uniquement : JSON valide, bornes sur `n`, présence du token.
+- **Raisons** : si le Hub valide le schéma, il doit connaître le canon → couplage avec choix-narratifs → effondrement de la frontière fine. C'est la "tentation à fuir" explicitement nommée dans le plan d'action. La cécité au canon est un invariant, pas une convention.
+- **Écarté** : paquet versionné `@suddenly/packet-schema` consommé par le Hub (introduit un lien de build entre deux services) ; artefact R2 téléchargé au boot (même problème de couplage, désync runtime en prime).
+- **Cf.** `c01127ae-planactionsuddenlyaihub.md` §1 ("Aveugle au canon. Le schéma EST le mur. Tentation à fuir : générer côté serveur") ; brainstorm session 2026-06-03.
+
+## D18. Suddenly AI Hub — auth token JWT signé par Muse
+
+- **Décidé** : Muse émet un JWT (`sub` = user_id, `iss` = muse.domain, durée courte). Le Hub vérifie via le JWK endpoint de l'instance Muse émettrice. Stateless côté Hub.
+- **Raisons** : adapté au contexte fédéré multi-instances (chaque instance Muse a son propre `iss` et JWK) ; pas d'état côté Hub ; révocable par rotation de clé ; contrat explicite (champ `iss` + JWK endpoint = interface versionnée).
+- **Écarté** : token opaque + introspection (couplage synchrone Hub ↔ Muse sur chaque requête) ; passeport one-time (charge sur Muse à chaque appel `/narrate`) ; token opaque + cache (fenêtre de validité post-révocation).
+- **Conséquence** : le Hub doit résoudre le JWK endpoint depuis `iss` (convention `.well-known/jwks.json`). À documenter dans `infrastructure.md` quand il sera rédigé.
+- **Cf.** brainstorm session 2026-06-03.
+
 ## D16. Suddenly AI Hub — runtime Worker jetable puis Railway
 
 - **Décidé** : Phase 1 = stub HTTP local (pas de déploiement), Phase 2 = Railway directement (même runtime que Hermes).
