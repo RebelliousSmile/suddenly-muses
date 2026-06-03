@@ -110,6 +110,14 @@ Décisions structurantes prises lors du pivot LoRA → tables+ML (mai 2026). Cha
 - **Raisons** : la méthodologie de traduction de gros volumes a une valeur indépendante du pipeline LoRA originel, potentiellement réutilisable pour un futur tagging multilingue ou la traduction de corpus.
 - **Cf.** : commit de purge de la mémoire externe (`8b41c80`) qui conserve explicitement ce fichier alors que onze autres LoRA-era sont supprimés. Décision tracée dans le diff du commit lui-même.
 
+## D16. Suddenly AI Hub — runtime Worker jetable puis Railway
+
+- **Décidé** : Phase 1 = stub HTTP local (pas de déploiement), Phase 2 = Railway directement (même runtime que Hermes).
+- **Raisons** : le stub local débloque l'intégration côté choix-narratifs sans aucune décision d'infra ; passer directement à Railway en Phase 2 évite une migration edge→container (Cloudflare Workers → Railway) qui masquerait des différences de comportement sur les appels sortants lourds (Anthropic/OpenRouter).
+- **Écarté** : Cloudflare Workers pour le Worker jetable (runtime différent, limites CPU par requête, pas de Postgres natif, double migration vers Railway inévitable) ; Railway dès la Phase 1 (sur-ingénierie avant validation du contrat d'API).
+- **Conséquence** : côté CN, la Phase 1 cible une URL localhost configurable ; la bascule Phase 2 est un changement de variable d'environnement, zéro ligne de logique touchée.
+- **Cf.** `c01127ae-planactionsuddenlyaihub.md` §3 plan (track Hub), brainstorm session 2026-06-03.
+
 ## D15. SPOF du service Muses assumé pour le MVP
 
 - **Décidé** : le service Muses étant unique (D07), c'est un point de défaillance unique pour les features IA de toutes les instances Suddenly. Assumé tel quel jusqu'à la production (M4) — résilience traitée dans `infrastructure.md` après.
