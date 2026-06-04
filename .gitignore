@@ -36,3 +36,8 @@ pipelines/**/.cache/
 tables/**/*.sqlite
 tables/**/*.sqlite-journal
 tables/**/*.npy
+
+# Données runtime du service (stores feedback/trust/portefeuille, snapshots).
+# Chemins par défaut MUSES_FEEDBACK_DIR / MUSES_SNAPSHOT_DIR ; en prod sur /data.
+feedback/
+snapshots/
