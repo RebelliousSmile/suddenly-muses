@@ -54,6 +54,8 @@ Identité complète : `philosophy.md`. Architecture : `architecture-tables-ml.md
 
 Cf. `philosophy.md` §8.
 
+> **Évolution (2026-06-04) — rôle relais `/narrate`.** Depuis l'arrivée de choix-narratifs (CN), le Hub héberge **une seconde famille de routes**, `/narrate` (relais narrateur best-of-N pour CN), qui **appelle un provider LLM**. C'est une exception assumée aux non-objectifs ci-dessus (« pas un LLM », « pas d'inférence payante par token »), **cloisonnée** (D-Hub-0, D16-D18) : elle ne concerne **que** le service CN, jamais le pipeline de suggestion (`/v1/suggest|analyze`), qui reste sans LLM, CPU-only. Le Hub reste aveugle au canon — il ne génère qu'à partir du paquet fourni par CN.
+
 ## État du projet
 
 Pré-MVP. Théorie posée dans sept documents (cf. `architecture.md`). Code historique partiellement présent (`pipelines/anonymization`, `pipelines/crawl_rpv`, `apps/playground`) mais hérité de l'ancienne stack LoRA — adaptation et purge à conduire selon `technical-plan.md` M0-M1.

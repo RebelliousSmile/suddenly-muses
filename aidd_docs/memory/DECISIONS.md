@@ -116,6 +116,7 @@ Décisions structurantes prises lors du pivot LoRA → tables+ML (mai 2026). Cha
 - **Raisons** : si le Hub valide le schéma, il doit connaître le canon → couplage avec choix-narratifs → effondrement de la frontière fine. C'est la "tentation à fuir" explicitement nommée dans le plan d'action. La cécité au canon est un invariant, pas une convention.
 - **Écarté** : paquet versionné `@suddenly/packet-schema` consommé par le Hub (introduit un lien de build entre deux services) ; artefact R2 téléchargé au boot (même problème de couplage, désync runtime en prime).
 - **Cf.** `c01127ae-planactionsuddenlyaihub.md` §1 ("Aveugle au canon. Le schéma EST le mur. Tentation à fuir : générer côté serveur") ; brainstorm session 2026-06-03.
+- **Évolution (2026-06-04, H2)** : décision **révisée** — le Hub valide **aussi** la FORME du paquet `/narrate` (schéma fermé `additionalProperties:false`, `schema_version`, bornes `n`), en défense en profondeur. Nuance clé qui lève la tension avec la raison d'origine : valider la FORME n'est **pas** connaître le CANON. Le `schema.json` est généré par CN et ne contient aucun secret ; le Hub reste aveugle au contenu. Si CN a un bug et laisse passer un champ canon, le Hub le coupe quand même (mur des deux côtés). La cécité au canon (invariant) est préservée. Implémenté en H0/H1 (`muses/narrate/schema.py`, test `test_narrate_unknown_field_is_the_wall`). Tranché par FX : « la demande la plus récente fait foi, on fait évoluer le modèle. »
 
 ## D18. Suddenly AI Hub — auth token JWT signé par Muse
 

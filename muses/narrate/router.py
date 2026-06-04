@@ -14,6 +14,7 @@ import json
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from muses.narrate.narrator import Narrator
 from muses.narrate.schema import PacketError, validate_request
@@ -46,7 +47,10 @@ def create_narrate_router(narrator: Narrator) -> APIRouter:
             raise HTTPException(status_code=422, detail=f"PacketError: {exc}")
 
         n = body["n"]
-        texts = narrator.narrate(body["packet"], n)
+        # narrate() peut faire de l'I/O bloquante (LLMNarrator) → threadpool
+        # pour ne pas bloquer l'event loop (cf. règle perf-pivots-fastapi §9).
+        # Une ProviderError remonte ici puis est mappée en 502 par create_app.
+        texts = await run_in_threadpool(narrator.narrate, body["packet"], n)
         # H3 : credits_spent deviendra le débit réel du portefeuille (≈ n).
         return NarrateResponse(
             candidates=[NarrateCandidate(text=t) for t in texts],

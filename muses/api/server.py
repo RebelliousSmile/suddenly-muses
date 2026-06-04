@@ -39,9 +39,10 @@ from muses.feedback.instance_reputation import InstanceReputationStore
 from muses.feedback.online_learning import OnlineLearner
 from muses.feedback.style_profile import StyleProfileStore
 from muses.feedback.trust import TrustStore
-from muses.narrate import CannedNarrator, Narrator, create_narrate_router
+from muses.narrate import LLMNarrator, Narrator, create_narrate_router
 from muses.pipeline.orchestrator import Orchestrator
 from muses.tables.embeddings import Encoder, StubEncoder
+from pipelines.evaluation.providers import ProviderError
 
 
 logger = logging.getLogger("muses.api")
@@ -420,7 +421,19 @@ def create_app(
 
     # D-Hub-0 — relais narrateur /narrate, famille de routes distincte (sert CN,
     # aveugle au canon). Partage l'infra (app, rate-limit) sans la sémantique.
-    # H1 : narrateur canned par défaut ; H2 injectera un LLMNarrator.
-    app.include_router(create_narrate_router(narrator or CannedNarrator()))
+    # H2 : LLMNarrator par défaut ; CannedNarrator reste injectable (tests/red-team).
+    app.include_router(create_narrate_router(narrator or LLMNarrator()))
+
+    @app.exception_handler(ProviderError)
+    async def _provider_error_handler(request: Request, exc: ProviderError):
+        # Échec du provider LLM → 502, aucun faux succès. Le débit (H3) n'a pas
+        # encore eu lieu, donc rien à rembourser ici.
+        from fastapi.responses import JSONResponse
+
+        logger.warning("narrate provider error: %s", exc)
+        return JSONResponse(
+            status_code=502,
+            content={"detail": f"narrator provider unavailable: {exc}"},
+        )
 
     return app

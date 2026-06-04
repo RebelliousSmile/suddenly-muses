@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from muses.api.server import create_app
+from muses.narrate import CannedNarrator
 
 
 def _valid_request(n: int = 3) -> dict:
@@ -25,7 +26,9 @@ def _valid_request(n: int = 3) -> dict:
 @pytest.fixture()
 def client() -> TestClient:
     # tables=[] : /narrate n'utilise pas l'orchestrateur ni les tables.
-    return TestClient(create_app(tables=[]))
+    # Injection explicite du CannedNarrator : le défaut de create_app est
+    # désormais LLMNarrator (H2), qui exigerait un provider/clé.
+    return TestClient(create_app(tables=[], narrator=CannedNarrator()))
 
 
 def test_narrate_returns_n_candidates(client: TestClient) -> None:

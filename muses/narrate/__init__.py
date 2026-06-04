@@ -4,7 +4,7 @@ Famille de routes distincte de `/v1/suggest|analyze/*` : aveugle au canon,
 sert CN, partage l'infra Hub sans partager la sémantique.
 """
 
-from muses.narrate.narrator import CannedNarrator, Narrator
+from muses.narrate.narrator import CannedNarrator, LLMNarrator, Narrator
 from muses.narrate.router import (
     NarrateCandidate,
     NarrateResponse,
@@ -21,6 +21,7 @@ from muses.narrate.schema import (
 
 __all__ = [
     "CannedNarrator",
+    "LLMNarrator",
     "Narrator",
     "NarrateCandidate",
     "NarrateResponse",
