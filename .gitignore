@@ -17,6 +17,9 @@ venv/
 # Logs
 logs/
 
+# Local Muses runner artefacts
+.muses/
+
 # Docker
 .docker/
 

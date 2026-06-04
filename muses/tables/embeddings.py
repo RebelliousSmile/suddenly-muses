@@ -79,7 +79,10 @@ class SentenceTransformerEncoder:
                 "sentence-transformers n'est pas installé. "
                 "Install via `pip install -e .[embeddings]` ou utilise StubEncoder."
             ) from exc
-        self._model = SentenceTransformer(self.model_name)
+        # Force CPU explicitly: the deployment target is CPU-only and a few
+        # recent torch/transformers combinations have been observed to default
+        # into meta-tensor / device-mapping paths when no device is pinned.
+        self._model = SentenceTransformer(self.model_name, device="cpu")
         self.dim = self._model.get_sentence_embedding_dimension()
 
     def encode(self, texts: list[str]) -> np.ndarray:
