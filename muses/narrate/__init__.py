@@ -18,6 +18,15 @@ from muses.narrate.schema import (
     schema_is_placeholder,
     validate_request,
 )
+from muses.narrate.session import (
+    JwtSessionVerifier,
+    SessionClaims,
+    SessionTokenError,
+    SessionVerifier,
+    StubSessionVerifier,
+    make_session_dependency,
+)
+from muses.narrate.wallet import WalletStore
 
 __all__ = [
     "CannedNarrator",
@@ -32,4 +41,11 @@ __all__ = [
     "load_schema",
     "schema_is_placeholder",
     "validate_request",
+    "JwtSessionVerifier",
+    "SessionClaims",
+    "SessionTokenError",
+    "SessionVerifier",
+    "StubSessionVerifier",
+    "make_session_dependency",
+    "WalletStore",
 ]

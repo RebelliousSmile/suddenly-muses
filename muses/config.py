@@ -18,6 +18,7 @@ from typing import Literal
 SignatureMode = Literal["stub", "strict"]
 EncoderKind = Literal["stub", "sentence_transformer"]
 LogFormat = Literal["text", "json"]
+NarrateAuthMode = Literal["off", "stub", "strict"]
 
 
 @dataclass
@@ -43,6 +44,14 @@ class Settings:
     log_level: str
     log_format: LogFormat
 
+    # Relais /narrate (H3) — auth session + métrage. `off` = ouvert, pas de débit.
+    narrate_auth_mode: NarrateAuthMode
+    narrate_jwt_secret: str | None
+    narrate_jwt_algorithm: str
+    narrate_jwt_issuers: list[str] | None
+    narrate_default_grant: int
+    narrate_cors_origins: list[str] | None
+
     @property
     def table_jsonl_paths(self) -> list[Path]:
         """Tous les `.jsonl` directement sous `table_dir` (non-récursif)."""
@@ -65,6 +74,13 @@ def _env_int(name: str, default: int) -> int:
         return int(raw)
     except ValueError as exc:
         raise ConfigError(f"{name} doit être un entier, reçu {raw!r}") from exc
+
+
+def _env_csv(name: str) -> list[str] | None:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return None
+    return [item.strip() for item in raw.split(",") if item.strip()]
 
 
 def _env_choice(name: str, default: str, choices: tuple[str, ...]) -> str:
@@ -101,6 +117,14 @@ def load_config() -> Settings:
         log_format=_env_choice(
             "MUSES_LOG_FORMAT", "text", ("text", "json"),
         ),  # type: ignore[arg-type]
+        narrate_auth_mode=_env_choice(
+            "MUSES_NARRATE_AUTH_MODE", "off", ("off", "stub", "strict"),
+        ),  # type: ignore[arg-type]
+        narrate_jwt_secret=os.environ.get("MUSES_NARRATE_JWT_SECRET") or None,
+        narrate_jwt_algorithm=os.environ.get("MUSES_NARRATE_JWT_ALGORITHM", "HS256"),
+        narrate_jwt_issuers=_env_csv("MUSES_NARRATE_JWT_ISSUERS"),
+        narrate_default_grant=_env_int("MUSES_NARRATE_DEFAULT_GRANT", 1000),
+        narrate_cors_origins=_env_csv("MUSES_NARRATE_CORS_ORIGINS"),
     )
 
     _validate(settings)
@@ -132,6 +156,12 @@ def _validate(s: Settings) -> None:
                 "Ne pas utiliser en production ouverte.",
                 s.bind_host, s.bind_port,
             )
+
+    if s.narrate_auth_mode == "strict" and not s.narrate_jwt_secret:
+        raise ConfigError(
+            "MUSES_NARRATE_AUTH_MODE=strict exige MUSES_NARRATE_JWT_SECRET "
+            "(secret HS256 ou clé publique PEM RS256)."
+        )
 
 
 def configure_logging(settings: Settings) -> None:

@@ -39,7 +39,13 @@ from muses.feedback.instance_reputation import InstanceReputationStore
 from muses.feedback.online_learning import OnlineLearner
 from muses.feedback.style_profile import StyleProfileStore
 from muses.feedback.trust import TrustStore
-from muses.narrate import LLMNarrator, Narrator, create_narrate_router
+from muses.narrate import (
+    LLMNarrator,
+    Narrator,
+    SessionClaims,
+    WalletStore,
+    create_narrate_router,
+)
 from muses.pipeline.orchestrator import Orchestrator
 from muses.tables.embeddings import Encoder, StubEncoder
 from pipelines.evaluation.providers import ProviderError
@@ -192,6 +198,9 @@ def create_app(
     key_resolver: KeyResolver | None = None,
     rate_limit_per_minute: int = 0,
     narrator: Narrator | None = None,
+    narrate_session_auth: Callable[[Request], SessionClaims] | None = None,
+    narrate_wallet: WalletStore | None = None,
+    narrate_cors_origins: list[str] | None = None,
 ) -> FastAPI:
     """Construit l'application FastAPI complète.
 
@@ -230,6 +239,19 @@ def create_app(
         description="Service mutualisé d'assistance créative pour le Fediverse Suddenly",
         version="0.0.0-pre-mvp",
     )
+
+    # H4 — CORS opt-in restreint au domaine choix-narratifs. Désactivé par
+    # défaut : l'appel CN→Hub est serveur-à-serveur (CORS = navigateur), donc
+    # généralement inutile. Activé uniquement si des origines sont fournies.
+    if narrate_cors_origins:
+        from fastapi.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=narrate_cors_origins,
+            allow_methods=["POST"],
+            allow_headers=["Authorization", "Content-Type"],
+        )
 
     @app.middleware("http")
     async def _rate_limit_mw(request: Request, call_next):
@@ -422,7 +444,14 @@ def create_app(
     # D-Hub-0 — relais narrateur /narrate, famille de routes distincte (sert CN,
     # aveugle au canon). Partage l'infra (app, rate-limit) sans la sémantique.
     # H2 : LLMNarrator par défaut ; CannedNarrator reste injectable (tests/red-team).
-    app.include_router(create_narrate_router(narrator or LLMNarrator()))
+    # H3 : auth session + portefeuille injectés (None → ouvert, pas de débit).
+    app.include_router(
+        create_narrate_router(
+            narrator or LLMNarrator(),
+            session_auth=narrate_session_auth,
+            wallet=narrate_wallet,
+        )
+    )
 
     @app.exception_handler(ProviderError)
     async def _provider_error_handler(request: Request, exc: ProviderError):

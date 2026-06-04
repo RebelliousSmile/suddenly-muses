@@ -30,6 +30,36 @@ def _build_encoder(settings: Settings) -> Encoder:
     return StubEncoder(dim=settings.stub_encoder_dim)
 
 
+def _build_narrate_auth(settings: Settings):
+    """Construit (session_auth, wallet) pour /narrate selon le mode (H3).
+
+    `off` → (None, None) : relais ouvert, pas de métrage.
+    """
+    if settings.narrate_auth_mode == "off":
+        return None, None
+
+    from muses.narrate import (
+        JwtSessionVerifier,
+        StubSessionVerifier,
+        WalletStore,
+        make_session_dependency,
+    )
+
+    if settings.narrate_auth_mode == "stub":
+        verifier = StubSessionVerifier()
+    else:  # strict — secret validé par load_config
+        verifier = JwtSessionVerifier(
+            key=settings.narrate_jwt_secret,  # type: ignore[arg-type]
+            algorithms=[settings.narrate_jwt_algorithm],
+            issuers=settings.narrate_jwt_issuers,
+        )
+    wallet = WalletStore(
+        settings.feedback_dir / "narrate_wallet.sqlite",
+        default_grant=settings.narrate_default_grant,
+    )
+    return make_session_dependency(verifier), wallet
+
+
 def _build_app(settings: Settings):
     logger = logging.getLogger("muses.entrypoint")
     table_paths = settings.table_jsonl_paths
@@ -48,6 +78,8 @@ def _build_app(settings: Settings):
         settings.rate_limit_per_minute,
     )
 
+    narrate_session_auth, narrate_wallet = _build_narrate_auth(settings)
+
     return create_app(
         tables=table_paths,
         encoder=_build_encoder(settings),
@@ -60,6 +92,9 @@ def _build_app(settings: Settings):
         signature_mode=settings.signature_mode,
         signature_max_age_seconds=settings.signature_max_age_seconds,
         rate_limit_per_minute=settings.rate_limit_per_minute,
+        narrate_session_auth=narrate_session_auth,
+        narrate_wallet=narrate_wallet,
+        narrate_cors_origins=settings.narrate_cors_origins,
     )
 
 

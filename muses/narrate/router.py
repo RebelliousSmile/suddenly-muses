@@ -11,6 +11,7 @@ Pydantic réécrit à la main — invariant #4.
 from __future__ import annotations
 
 import json
+from typing import Callable
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -18,6 +19,8 @@ from starlette.concurrency import run_in_threadpool
 
 from muses.narrate.narrator import Narrator
 from muses.narrate.schema import PacketError, validate_request
+from muses.narrate.session import SessionClaims
+from muses.narrate.wallet import WalletStore
 
 
 class NarrateCandidate(BaseModel):
@@ -29,17 +32,31 @@ class NarrateResponse(BaseModel):
     credits_spent: int
 
 
-def create_narrate_router(narrator: Narrator) -> APIRouter:
-    """Construit le router `/narrate` branché sur un `Narrator` injecté."""
+def create_narrate_router(
+    narrator: Narrator,
+    *,
+    session_auth: Callable[[Request], SessionClaims] | None = None,
+    wallet: WalletStore | None = None,
+) -> APIRouter:
+    """Construit le router `/narrate`.
+
+    - `session_auth` (H3) : dependency qui vérifie le token de session et résout
+      l'identité. `None` → pas d'auth (H1/H2, dev).
+    - `wallet` (H3) : portefeuille Muse pour le métrage. `None` → pas de débit,
+      `credits_spent = n`.
+    """
     router = APIRouter()
 
     @router.post("/narrate", response_model=NarrateResponse)
     async def narrate(request: Request) -> NarrateResponse:
+        # 1. Auth (H3) — avant tout travail ; 401 si token absent/invalide.
+        claims = session_auth(request) if session_auth is not None else None
+
+        # 2. JSON + contrat fermé (H0/H1).
         try:
             body = await request.json()
         except (json.JSONDecodeError, UnicodeDecodeError):
             raise HTTPException(status_code=422, detail="corps illisible : JSON invalide")
-
         try:
             validate_request(body)
         except PacketError as exc:
@@ -47,14 +64,31 @@ def create_narrate_router(narrator: Narrator) -> APIRouter:
             raise HTTPException(status_code=422, detail=f"PacketError: {exc}")
 
         n = body["n"]
-        # narrate() peut faire de l'I/O bloquante (LLMNarrator) → threadpool
-        # pour ne pas bloquer l'event loop (cf. règle perf-pivots-fastapi §9).
-        # Une ProviderError remonte ici puis est mappée en 502 par create_app.
-        texts = await run_in_threadpool(narrator.narrate, body["packet"], n)
-        # H3 : credits_spent deviendra le débit réel du portefeuille (≈ n).
+        effective_n = n
+
+        # 3. Métrage (H3) — levier portefeuille bas, 402 si vide.
+        wallet_key = ""
+        if wallet is not None:
+            wallet_key = claims.wallet_key if claims is not None else "_anonymous"
+            balance = wallet.balance(wallet_key)
+            if balance <= 0:
+                raise HTTPException(status_code=402, detail="portefeuille Muse vide")
+            if balance < n:
+                effective_n = 1  # levier : portefeuille bas → forcer n=1
+
+        # 4. Génération best-of-N. I/O bloquante (LLMNarrator) → threadpool
+        #    (règle perf-pivots-fastapi §9). ProviderError → 502 via create_app ;
+        #    le débit ci-dessous n'a alors pas lieu (aucune unité perdue).
+        texts = await run_in_threadpool(narrator.narrate, body["packet"], effective_n)
+
+        # 5. Débit APRÈS génération réussie.
+        spent = effective_n
+        if wallet is not None:
+            wallet.debit(wallet_key, spent)
+
         return NarrateResponse(
             candidates=[NarrateCandidate(text=t) for t in texts],
-            credits_spent=n,
+            credits_spent=spent,
         )
 
     return router
