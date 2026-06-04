@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://suddenly.social/narrate/schema.json",
+  "$comment": "PLACEHOLDER — NE PAS considérer comme la source de vérité. Le vrai contrat doit être généré côté choix-narratifs : `cargo run -p cn-core --features schema --example emit_schema > schema.json`, puis déposé ici. Tant que le marqueur x-suddenly-placeholder vaut true, le test tests/muses/narrate/test_contract.py::test_real_cn_schema_present reste en xfail (tripwire H0).",
+  "x-suddenly-placeholder": true,
+  "title": "NarrateRequest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "n", "packet"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "n": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "packet": { "$ref": "#/definitions/ScenePacket" }
+  },
+  "definitions": {
+    "ScenePacket": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cadre", "locuteur", "action_joueur", "form"],
+      "properties": {
+        "cadre": { "type": "string" },
+        "locuteur": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["nom", "voix"],
+          "properties": {
+            "nom": { "type": "string" },
+            "voix": { "type": "string" }
+          }
+        },
+        "action_joueur": { "type": "string" },
+        "hearing": { "type": "array", "items": { "type": "string" } },
+        "mouvement": { "type": "string" },
+        "revealable": { "type": "array", "items": { "type": "string" } },
+        "withhold": { "type": "array", "items": { "type": "string" } },
+        "form": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["registre", "budget"],
+          "properties": {
+            "registre": { "type": "string" },
+            "budget": { "type": "integer", "minimum": 1 },
+            "ratio": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+            "shapes_interdites": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    }
+  }
+}

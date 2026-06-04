@@ -39,6 +39,7 @@ from muses.feedback.instance_reputation import InstanceReputationStore
 from muses.feedback.online_learning import OnlineLearner
 from muses.feedback.style_profile import StyleProfileStore
 from muses.feedback.trust import TrustStore
+from muses.narrate import CannedNarrator, Narrator, create_narrate_router
 from muses.pipeline.orchestrator import Orchestrator
 from muses.tables.embeddings import Encoder, StubEncoder
 
@@ -189,6 +190,7 @@ def create_app(
     signature_max_age_seconds: int = 300,
     key_resolver: KeyResolver | None = None,
     rate_limit_per_minute: int = 0,
+    narrator: Narrator | None = None,
 ) -> FastAPI:
     """Construit l'application FastAPI complète.
 
@@ -415,5 +417,10 @@ def create_app(
 
     if tables:
         app.include_router(create_admin_router(tables=tables, admin_token=admin_token))
+
+    # D-Hub-0 — relais narrateur /narrate, famille de routes distincte (sert CN,
+    # aveugle au canon). Partage l'infra (app, rate-limit) sans la sémantique.
+    # H1 : narrateur canned par défaut ; H2 injectera un LLMNarrator.
+    app.include_router(create_narrate_router(narrator or CannedNarrator()))
 
     return app
