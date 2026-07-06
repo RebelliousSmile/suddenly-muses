@@ -125,6 +125,7 @@ Décisions structurantes prises lors du pivot LoRA → tables+ML (mai 2026). Cha
 - **Écarté** : token opaque + introspection (couplage synchrone Hub ↔ Muse sur chaque requête) ; passeport one-time (charge sur Muse à chaque appel `/narrate`) ; token opaque + cache (fenêtre de validité post-révocation).
 - **Conséquence** : le Hub doit résoudre le JWK endpoint depuis `iss` (convention `.well-known/jwks.json`). À documenter dans `infrastructure.md` quand il sera rédigé.
 - **Cf.** brainstorm session 2026-06-03.
+- **Évolution (2026-07-06, H5 #89)** : le volet vérification de D18, resté non implémenté après H3 (#86) — `JwtSessionVerifier` n'exposait qu'un secret statique, sans résolution JWK par `iss` — est livré : `muses/narrate/jwks.py` (allowlist avant fetch, https-only, cache TTL, refetch unique sur `kid` inconnu, fail-closed), émetteur de référence (`issuer.py`) + CLI (`scripts/mint_muse_token.py`) pour rendre le flux démontrable de bout en bout. Corollaire retenu (D-89.2) : `narrate_default_grant` passe à 0 par défaut en mode strict (au lieu de 1000) — sans ça, tout JWT valide restait 1000 crédits gratuits, annulant le contrôle d'accès que D18 est censé apporter. Revue de code : `MUSES_ADMIN_TOKEN` est désormais exigé en strict (le faucet `/v1/admin/narrate/credit` est sinon ouvert, `_check_admin` étant un no-op sans token) ; l'algorithme JWKS est forcé à `RS256` côté `entrypoint.py` (évite un mismatch silencieux avec le défaut HS256 de `narrate_jwt_algorithm`).
 
 ## D16. Suddenly AI Hub — runtime Worker jetable puis Railway
 

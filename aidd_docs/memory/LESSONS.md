@@ -108,3 +108,9 @@ Quand on batchise plusieurs textes avec `nlp.pipe()` par groupe de langue (FR d'
 Quand on refactore la signature d'une fonction (`_replace_persons` : ajout de `doc: Doc | None = None`), les tests qui importent et appellent directement cette fonction continuent d'attendre l'ancienne interface. La supprimer et inliner la logique casse l'import des tests.
 
 **Leçon** : si des tests importent une fonction par nom, la garder avec sa signature étendue (paramètre optionnel). Ne la supprimer que si les tests sont mis à jour dans le même commit.
+
+## L16. L'ordre des gardes dans un validateur fail-fast est significatif
+
+Dans `config._validate()` (plusieurs `if ... raise ConfigError` séquentiels), ajouter une nouvelle garde AVANT une garde existante peut masquer le message d'erreur de cette dernière quand un même scénario de test viole les deux conditions à la fois. Constaté sur #89 : une nouvelle garde `admin_token requis en strict` placée avant la garde `issuers requis si JWKS` a fait échouer `test_strict_narrate_jwks_enabled_without_issuers_refused` (le test ne posait pas `admin_token`, donc la nouvelle garde levait sa propre erreur en premier, avec un message ne correspondant plus au regex attendu par le test).
+
+**Leçon** : en ajoutant une garde à une fonction de validation à guards séquentielles, vérifier quelles gardes existantes partagent une précondition (ici : ni l'une ni l'autre n'était posée par le test visé) et placer la nouvelle garde après elles, ou faire tourner toute la suite de tests concernés avant de considérer l'ajout terminé — pas seulement les tests qu'on pense affectés.
