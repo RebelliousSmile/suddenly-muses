@@ -39,6 +39,13 @@ from muses.feedback.instance_reputation import InstanceReputationStore
 from muses.feedback.online_learning import OnlineLearner
 from muses.feedback.style_profile import StyleProfileStore
 from muses.feedback.trust import TrustStore
+from muses.narrate import (
+    LLMNarrator,
+    Narrator,
+    SessionClaims,
+    WalletStore,
+    create_narrate_router,
+)
 from muses.pipeline.orchestrator import Orchestrator
 from muses.tables.embeddings import Encoder, StubEncoder
 
@@ -189,6 +196,10 @@ def create_app(
     signature_max_age_seconds: int = 300,
     key_resolver: KeyResolver | None = None,
     rate_limit_per_minute: int = 0,
+    narrator: Narrator | None = None,
+    narrate_session_auth: Callable[[Request], SessionClaims] | None = None,
+    narrate_wallet: WalletStore | None = None,
+    narrate_cors_origins: list[str] | None = None,
 ) -> FastAPI:
     """Construit l'application FastAPI complète.
 
@@ -198,13 +209,14 @@ def create_app(
     - `rate_limit_per_minute=0` : pas de rate limit. Sinon limit par IP.
     """
     encoder = encoder or StubEncoder(dim=16)
-    orchestrator = Orchestrator(tables=tables, encoder=encoder)
 
     event_log = EventLog(event_log_path) if event_log_path else None
     trust_store = TrustStore(trust_db_path) if trust_db_path else None
     instance_store = InstanceReputationStore(instance_db_path) if instance_db_path else None
     style_store = StyleProfileStore(style_db_path) if style_db_path else None
     learner = OnlineLearner(learner_db_path) if learner_db_path else None
+
+    orchestrator = Orchestrator(tables=tables, encoder=encoder, style_store=style_store)
 
     sqlite_paths = [
         p for p in [trust_db_path, instance_db_path, style_db_path, learner_db_path]
@@ -227,6 +239,19 @@ def create_app(
         description="Service mutualisé d'assistance créative pour le Fediverse Suddenly",
         version="0.0.0-pre-mvp",
     )
+
+    # H4 — CORS opt-in restreint au domaine choix-narratifs. Désactivé par
+    # défaut : l'appel CN→Hub est serveur-à-serveur (CORS = navigateur), donc
+    # généralement inutile. Activé uniquement si des origines sont fournies.
+    if narrate_cors_origins:
+        from fastapi.middleware.cors import CORSMiddleware
+
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=narrate_cors_origins,
+            allow_methods=["POST"],
+            allow_headers=["Authorization", "Content-Type"],
+        )
 
     @app.middleware("http")
     async def _rate_limit_mw(request: Request, call_next):
@@ -415,5 +440,17 @@ def create_app(
 
     if tables:
         app.include_router(create_admin_router(tables=tables, admin_token=admin_token))
+
+    # D-Hub-0 — relais narrateur /narrate, famille de routes distincte (sert CN,
+    # aveugle au canon). Partage l'infra (app, rate-limit) sans la sémantique.
+    # H2 : LLMNarrator par défaut ; CannedNarrator reste injectable (tests/red-team).
+    # H3 : auth session + portefeuille injectés (None → ouvert, pas de débit).
+    app.include_router(
+        create_narrate_router(
+            narrator or LLMNarrator(),
+            session_auth=narrate_session_auth,
+            wallet=narrate_wallet,
+        )
+    )
 
     return app

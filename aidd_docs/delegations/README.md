@@ -4,8 +4,14 @@ Trace, versionnée, des travaux **confiés à des agents externes** (Hermès, et
 
 ## Ce que ce dossier est, et n'est pas
 
-- **Est** : la source de vérité, côté repo, des missions déléguées et de leur historique. Distinct de `aidd_docs/tasks/`, qui suit le travail-produit du Hub lui-même.
+- **Est** : la source de vérité, côté repo, des missions déléguées et de leur historique. Distinct de `aidd_docs/tasks/` (plans de tâches du Hub lui-même), `aidd_docs/reviews/` (challenge reports) et `aidd_docs/memory/` (mémoire projet long terme).
 - **N'est pas** : le répertoire de travail d'un agent. Il n'y a **aucune synchronisation** avec la machine d'un agent. Transférer un plan à Hermès est une **étape d'export manuelle** (copie sur son hôte) — pas un montage partagé. C'est pourquoi on ne reproduit pas ici l'arborescence interne d'un agent (ex. `.hermes/`).
+
+## Agents
+
+| Agent    | Rôle                             | Statut |
+| -------- | -------------------------------- | ------ |
+| `hermes` | Agent de test autonome de l'app  | actif  |
 
 ## Contenu
 
@@ -13,6 +19,7 @@ Trace, versionnée, des travaux **confiés à des agents externes** (Hermès, et
 |---|---|
 | `journal.md` | Historique daté : ce qui a été demandé · agent · plan lié · verdict |
 | `AAAA-MM-JJ-<slug>.md` | Plan de mission délégué (objectifs + critères de réussite). Exporté vers l'agent au moment de l'exécution. |
+| `archive/` | Plans obsolètes, conservés comme trace historique (ne pas exécuter). |
 
 ## Cycle d'une délégation
 

@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://choix-narratifs.fr/schemas/hub/narrate.schema.json",
+  "title": "Hub /narrate — contrat de couture CN ↔ Hub",
+  "description": "Enveloppe HTTP du relais narrateur. La RACINE valide le corps de la REQUÊTE `POST /narrate` (= le type `Prepared` du moteur : { packet, n }). Les réponses (succès / erreur) sont sous $defs. Le `ScenePacket` est recopié depuis src/scripts/narrative/generated/schema.json (SOURCE DE VÉRITÉ, émis par cn-core) : en cas de divergence, ce dernier fait foi — régénérer via `pnpm gen:types`. Le narrateur reste AVEUGLE AU CANON : aucun secret ne figure dans le paquet.",
+
+  "$ref": "#/$defs/NarrateRequest",
+
+  "$defs": {
+    "NarrateRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Corps de `POST /narrate`. En-têtes attendus : `content-type: application/json`, `authorization: Bearer <cn-hub-token>`.",
+      "required": ["packet", "n"],
+      "properties": {
+        "packet": {
+          "$ref": "#/$defs/ScenePacket",
+          "description": "Le paquet de scène, forme fermée et canon-free."
+        },
+        "n": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5,
+          "description": "Best-of-N demandé (contract.json.best_of_n : min 1, max 5). Le Hub DOIT renvoyer exactement `n` candidats."
+        }
+      }
+    },
+
+    "NarrateResponseOk": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Réponse 200. `candidates.length` DOIT valoir `n` de la requête (contrainte inter-champs non exprimable en JSON Schema — à valider côté service).",
+      "required": ["candidates"],
+      "properties": {
+        "candidates": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Candidats de prose, aveugles au canon. Le tri (fuite / contradiction / move + resample) est fait CÔTÉ CN par le verifier ; le Hub ne juge pas."
+        },
+        "schema_version": {
+          "const": 1,
+          "description": "Écho du `packet_schema_version` traité (optionnel mais recommandé)."
+        }
+      }
+    },
+
+    "NarrateError": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Corps d'erreur (4xx/5xx). Le client `HttpNarrator` mappe aujourd'hui tout `!res.ok` sur une Error ; ce corps typé permet un message précis à l'UI.",
+      "required": ["error"],
+      "properties": {
+        "error": {
+          "type": "string",
+          "enum": [
+            "unauthorized",
+            "quota_exhausted",
+            "bad_request",
+            "schema_incompatible",
+            "provider_error"
+          ],
+          "description": "unauthorized→401 (token absent/invalide) · quota_exhausted→402/429 (portefeuille Muse épuisé) · bad_request→400 (JSON/paquet malformé) · schema_incompatible→409 (schema_version non géré) · provider_error→502/503 (Anthropic/OpenRouter en échec)."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Message lisible, sans secret ni donnée sensible."
+        },
+        "retriable": {
+          "type": "boolean",
+          "description": "Vrai si un nouvel essai peut réussir (ex. provider_error transitoire). Aide le resample/backoff côté hôte."
+        }
+      }
+    },
+
+    "ScenePacket": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Copié depuis generated/schema.json#/$defs/ScenePacket. Tout ce dont le narrateur a besoin, et rien qui puisse fuiter.",
+      "required": [
+        "schema_version",
+        "cadre",
+        "locuteur",
+        "action_joueur",
+        "hearing",
+        "move",
+        "revealable",
+        "withhold",
+        "form"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": 1,
+          "description": "Version du contrat (PACKET_SCHEMA_VERSION). Un paquet d'une autre version → réponse `schema_incompatible`."
+        },
+        "cadre": { "$ref": "#/$defs/Cadre" },
+        "locuteur": { "$ref": "#/$defs/Locuteur" },
+        "action_joueur": {
+          "type": "string",
+          "description": "Les mots du joueur ce tour (non-secret). Le résultat d'oracle n'apparaît jamais brut : il est déjà plié dans `move`."
+        },
+        "hearing": {
+          "type": "string",
+          "description": "Comment le locuteur ENTEND l'action (la méprise motivée, §6) — la forme, pas le secret."
+        },
+        "move": {
+          "type": "string",
+          "description": "Ce que le locuteur FAIT ce beat (oracle résolu). La prose DOIT le refléter."
+        },
+        "revealable": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Faits que le narrateur a le droit d'utiliser (secrets absents). Couplage jouabilité : énoncer un fait révélable prouve le move."
+        },
+        "withhold": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Étiquettes de sujets TUS (ex. \"qui a payé\"), jamais le contenu. À NE JAMAIS nommer dans la prose."
+        },
+        "form": { "$ref": "#/$defs/Form" }
+      }
+    },
+
+    "Cadre": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lieu"],
+      "properties": {
+        "lieu": { "type": "string" },
+        "ambiance": { "type": ["string", "null"] },
+        "presents": {
+          "type": "array",
+          "default": [],
+          "items": { "type": "string" },
+          "description": "Autres présents : identités publiques uniquement."
+        }
+      }
+    },
+
+    "Locuteur": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nom", "voix"],
+      "properties": {
+        "nom": { "type": "string", "description": "Identité publique (non-secret)." },
+        "voix": { "type": "string", "description": "Style de voix : registre, tics, manière." }
+      }
+    },
+
+    "Form": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Contraintes de forme (§6) : des clôtures, pas des couloirs.",
+      "required": ["registre", "budget_revelation", "ratio"],
+      "properties": {
+        "registre": { "$ref": "#/$defs/Registre" },
+        "budget_revelation": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "Nombre MAX de faits `revealable` à lâcher ce beat."
+        },
+        "ratio": { "$ref": "#/$defs/Ratio" },
+        "interdit_shape": {
+          "type": "array",
+          "default": [],
+          "items": { "$ref": "#/$defs/ShapeTag" },
+          "description": "Shapes à NE PAS reproduire (casse le lockstep §6)."
+        }
+      }
+    },
+
+    "Registre": {
+      "type": "string",
+      "enum": ["sec", "neutre", "tendu", "lyrique", "familier", "solennel"]
+    },
+    "Ratio": {
+      "type": "string",
+      "enum": ["non_verbal_dominant", "equilibre", "verbal_dominant"]
+    },
+    "ShapeTag": {
+      "type": "string",
+      "enum": [
+        "monologue",
+        "question_reponse",
+        "action_puis_replique",
+        "description_puis_dialogue",
+        "liste_descripteurs",
+        "replique_seche"
+      ]
+    }
+  }
+}
