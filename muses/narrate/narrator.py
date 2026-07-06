@@ -132,10 +132,14 @@ class LLMNarrator:
             )
         if packet.get("action_joueur"):
             lines.append(f"Action du joueur : {packet['action_joueur']}")
-        if packet.get("hearing"):
-            lines.append("Perçu / entendu : " + " ; ".join(packet["hearing"]))
-        if packet.get("mouvement"):
-            lines.append(f"Mouvement du locuteur ce beat : {packet['mouvement']}")
+        hearing = packet.get("hearing")
+        if hearing:
+            # Contrat CN : `hearing` est une string. On tolère aussi une liste.
+            rendered = hearing if isinstance(hearing, str) else " ; ".join(hearing)
+            lines.append(f"Perçu / entendu : {rendered}")
+        move = packet.get("move") or packet.get("mouvement")
+        if move:
+            lines.append(f"Mouvement du locuteur ce beat : {move}")
         if packet.get("revealable"):
             lines.append("Faits révélables (utilisables) : " + " ; ".join(packet["revealable"]))
         if packet.get("withhold"):

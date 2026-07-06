@@ -5,9 +5,8 @@ charge le `schema.json` généré depuis `packet.rs` (CN) et valide les requête
 `/narrate` contre lui via `jsonschema`. Toute dérive de schéma se corrige dans
 CN d'abord, puis se répercute en remplaçant `contract/schema.json`.
 
-Le `schema.json` présent est un **placeholder** tant que le vrai schéma de CN
-n'a pas été déposé (cf. `schema_is_placeholder`). Le test garde-couture le
-signale (xfail) sans bloquer la boucle H1.
+La RACINE du schéma valide le corps de `POST /narrate` (`{ packet, n }`). Le
+`schema_version` vit **dans** le paquet (`packet.schema_version`, const 1).
 """
 
 from __future__ import annotations
@@ -22,9 +21,21 @@ EXPECTED_PACKET_SCHEMA_VERSION = 1
 _SCHEMA_PATH = Path(__file__).parent / "contract" / "schema.json"
 _PLACEHOLDER_KEY = "x-suddenly-placeholder"
 
+# Chemin (dans l'instance) du champ de version — sert à distinguer une
+# incompatibilité de version (409) d'une simple requête malformée (400).
+SCHEMA_VERSION_LOCATION = "packet/schema_version"
+
 
 class PacketError(ValueError):
-    """Le corps `/narrate` viole le contrat (schéma fermé). → HTTP 422."""
+    """Le corps `/narrate` viole le contrat (schéma fermé).
+
+    `location` = chemin du premier champ fautif dans l'instance (ex.
+    `packet/schema_version`), pour le mapping fin des codes d'erreur.
+    """
+
+    def __init__(self, message: str, *, location: str = "(racine)") -> None:
+        super().__init__(message)
+        self.location = location
 
 
 @lru_cache(maxsize=1)
@@ -39,17 +50,21 @@ def schema_is_placeholder() -> bool:
 
 
 def declared_schema_version() -> int | None:
-    """Version portée par le `schema.json` (via `properties.schema_version.const`)."""
-    const = load_schema().get("properties", {}).get("schema_version", {}).get("const")
+    """Version portée par le paquet du schéma (`$defs.ScenePacket.schema_version`)."""
+    packet = load_schema().get("$defs", {}).get("ScenePacket", {})
+    const = packet.get("properties", {}).get("schema_version", {}).get("const")
     return const if isinstance(const, int) else None
 
 
 @lru_cache(maxsize=1)
 def _validator():
-    # Import différé : jsonschema fait partie de l'extra [api].
-    from jsonschema import Draft7Validator
+    # Sélectionne automatiquement le draft déclaré par `$schema` (2020-12 ici).
+    from jsonschema.validators import validator_for
 
-    return Draft7Validator(load_schema())
+    schema = load_schema()
+    cls = validator_for(schema)
+    cls.check_schema(schema)
+    return cls(schema)
 
 
 def validate_request(body: object) -> None:
@@ -65,4 +80,4 @@ def validate_request(body: object) -> None:
     if errors:
         first = errors[0]
         location = "/".join(str(p) for p in first.path) or "(racine)"
-        raise PacketError(f"{location}: {first.message}")
+        raise PacketError(f"{location}: {first.message}", location=location)

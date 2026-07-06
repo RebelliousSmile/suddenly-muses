@@ -5,11 +5,7 @@ sert CN, partage l'infra Hub sans partager la sémantique.
 """
 
 from muses.narrate.narrator import CannedNarrator, LLMNarrator, Narrator
-from muses.narrate.router import (
-    NarrateCandidate,
-    NarrateResponse,
-    create_narrate_router,
-)
+from muses.narrate.router import create_narrate_router
 from muses.narrate.schema import (
     EXPECTED_PACKET_SCHEMA_VERSION,
     PacketError,
@@ -32,8 +28,6 @@ __all__ = [
     "CannedNarrator",
     "LLMNarrator",
     "Narrator",
-    "NarrateCandidate",
-    "NarrateResponse",
     "create_narrate_router",
     "EXPECTED_PACKET_SCHEMA_VERSION",
     "PacketError",

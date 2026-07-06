@@ -1,4 +1,4 @@
-"""H3 — métrage `/narrate` bout-en-bout : auth + portefeuille."""
+"""H3 — métrage `/narrate` bout-en-bout : auth + portefeuille (contrat CN)."""
 
 from __future__ import annotations
 
@@ -25,15 +25,19 @@ def _token(*, sub="u1", iss="muse.example", ttl=3600) -> str:
     )
 
 
-def _packet_body(n: int = 3) -> dict:
+def _request(n: int = 3) -> dict:
     return {
-        "schema_version": 1,
         "n": n,
         "packet": {
-            "cadre": "Une taverne.",
+            "schema_version": 1,
+            "cadre": {"lieu": "une taverne", "ambiance": None, "presents": []},
             "locuteur": {"nom": "Le Garde", "voix": "bourru"},
             "action_joueur": "Le joueur entre.",
-            "form": {"registre": "familier", "budget": 1},
+            "hearing": "il entend une menace",
+            "move": "barre la porte",
+            "revealable": [],
+            "withhold": [],
+            "form": {"registre": "sec", "budget_revelation": 0, "ratio": "equilibre"},
         },
     }
 
@@ -52,47 +56,48 @@ def _client(tmp_path, *, default_grant: int) -> tuple[TestClient, WalletStore]:
 def test_authenticated_call_debits_n(tmp_path) -> None:
     client, wallet = _client(tmp_path, default_grant=100)
     resp = client.post(
-        "/narrate", json=_packet_body(n=3), headers={"Authorization": f"Bearer {_token()}"}
+        "/narrate", json=_request(n=3), headers={"Authorization": f"Bearer {_token()}"}
     )
     assert resp.status_code == 200
-    assert resp.json()["credits_spent"] == 3
+    assert len(resp.json()["candidates"]) == 3
+    assert resp.headers.get("X-Muses-Credits-Spent") == "3"
     assert wallet.balance("muse.example/u1") == 97
 
 
-def test_missing_token_rejected_401(tmp_path) -> None:
+def test_missing_token_is_401_unauthorized(tmp_path) -> None:
     client, _ = _client(tmp_path, default_grant=100)
-    assert client.post("/narrate", json=_packet_body()).status_code == 401
+    resp = client.post("/narrate", json=_request())
+    assert resp.status_code == 401
+    assert resp.json()["error"] == "unauthorized"
 
 
-def test_invalid_token_rejected_401(tmp_path) -> None:
+def test_invalid_token_is_401(tmp_path) -> None:
     client, _ = _client(tmp_path, default_grant=100)
     bad = jwt.encode(
         {"sub": "u1", "iss": "m", "exp": int(time.time()) + 60},
         "wrong-secret-0123456789-abcdefghij-ZZ",
         algorithm="HS256",
     )
-    resp = client.post(
-        "/narrate", json=_packet_body(), headers={"Authorization": f"Bearer {bad}"}
-    )
+    resp = client.post("/narrate", json=_request(), headers={"Authorization": f"Bearer {bad}"})
     assert resp.status_code == 401
 
 
-def test_empty_wallet_rejected_402(tmp_path) -> None:
-    client, _ = _client(tmp_path, default_grant=0)
-    resp = client.post(
-        "/narrate", json=_packet_body(n=2), headers={"Authorization": f"Bearer {_token()}"}
-    )
-    assert resp.status_code == 402
-
-
-def test_low_wallet_forces_n1(tmp_path) -> None:
-    # Solde 2 < n=3 → levier portefeuille bas : 1 seul candidat, 1 débité.
+def test_insufficient_wallet_is_402_quota(tmp_path) -> None:
+    # Contrat CN : exactement n candidats. Solde < n → refus, pas de n=1.
     client, wallet = _client(tmp_path, default_grant=2)
     resp = client.post(
-        "/narrate", json=_packet_body(n=3), headers={"Authorization": f"Bearer {_token()}"}
+        "/narrate", json=_request(n=3), headers={"Authorization": f"Bearer {_token()}"}
+    )
+    assert resp.status_code == 402
+    assert resp.json()["error"] == "quota_exhausted"
+    assert wallet.balance("muse.example/u1") == 2  # rien débité
+
+
+def test_exact_wallet_serves_full_n(tmp_path) -> None:
+    client, wallet = _client(tmp_path, default_grant=3)
+    resp = client.post(
+        "/narrate", json=_request(n=3), headers={"Authorization": f"Bearer {_token()}"}
     )
     assert resp.status_code == 200
-    data = resp.json()
-    assert len(data["candidates"]) == 1
-    assert data["credits_spent"] == 1
-    assert wallet.balance("muse.example/u1") == 1
+    assert len(resp.json()["candidates"]) == 3
+    assert wallet.balance("muse.example/u1") == 0

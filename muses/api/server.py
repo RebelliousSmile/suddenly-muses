@@ -48,7 +48,6 @@ from muses.narrate import (
 )
 from muses.pipeline.orchestrator import Orchestrator
 from muses.tables.embeddings import Encoder, StubEncoder
-from pipelines.evaluation.providers import ProviderError
 
 
 logger = logging.getLogger("muses.api")
@@ -453,17 +452,5 @@ def create_app(
             wallet=narrate_wallet,
         )
     )
-
-    @app.exception_handler(ProviderError)
-    async def _provider_error_handler(request: Request, exc: ProviderError):
-        # Échec du provider LLM → 502, aucun faux succès. Le débit (H3) n'a pas
-        # encore eu lieu, donc rien à rembourser ici.
-        from fastapi.responses import JSONResponse
-
-        logger.warning("narrate provider error: %s", exc)
-        return JSONResponse(
-            status_code=502,
-            content={"detail": f"narrator provider unavailable: {exc}"},
-        )
 
     return app

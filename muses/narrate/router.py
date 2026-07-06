@@ -1,11 +1,20 @@
-"""H1 — Endpoint `POST /narrate` du relais narrateur.
+"""H1/H3 — Endpoint `POST /narrate` du relais narrateur.
 
 Cloisonné de `muses/api/server.py` (routes suggest/analyze) pour marquer la
 frontière sémantique D-Hub-0 : ces routes servent CN, sont aveugles au canon,
-et ne partagent que l'infra (app, rate-limit, plus tard auth/métrage).
+et ne partagent que l'infra (app, rate-limit, auth/métrage).
 
-Le corps est validé contre `schema.json` (jsonschema), **pas** via un modèle
-Pydantic réécrit à la main — invariant #4.
+Conforme au contrat de couture CN (`contract/schema.json`) :
+- requête `{ packet, n }`, validée contre le schéma (jsonschema), pas via un
+  modèle Pydantic réécrit à la main — invariant #4 ;
+- réponse 200 `{ candidates: [str], schema_version: 1 }` avec **exactement `n`**
+  candidats (le Hub ne tronque pas — le verifier reste côté CN) ;
+- erreurs typées `{ error, detail, retriable }` :
+  `unauthorized` 401 · `quota_exhausted` 402 · `bad_request` 400 ·
+  `schema_incompatible` 409 · `provider_error` 502.
+
+Le métrage (débit portefeuille) passe en en-tête `X-Muses-Credits-Spent` pour ne
+pas polluer le corps fermé attendu par CN.
 """
 
 from __future__ import annotations
@@ -14,22 +23,26 @@ import json
 from typing import Callable
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from muses.narrate.narrator import Narrator
-from muses.narrate.schema import PacketError, validate_request
+from muses.narrate.schema import (
+    SCHEMA_VERSION_LOCATION,
+    PacketError,
+    validate_request,
+)
 from muses.narrate.session import SessionClaims
 from muses.narrate.wallet import WalletStore
+from pipelines.evaluation.providers import ProviderError
 
 
-class NarrateCandidate(BaseModel):
-    text: str
-
-
-class NarrateResponse(BaseModel):
-    candidates: list[NarrateCandidate]
-    credits_spent: int
+def _error(status: int, error: str, detail: str, *, retriable: bool = False) -> JSONResponse:
+    """Corps d'erreur typé conforme à `NarrateError` du contrat CN."""
+    return JSONResponse(
+        status_code=status,
+        content={"error": error, "detail": detail, "retriable": retriable},
+    )
 
 
 def create_narrate_router(
@@ -40,55 +53,60 @@ def create_narrate_router(
 ) -> APIRouter:
     """Construit le router `/narrate`.
 
-    - `session_auth` (H3) : dependency qui vérifie le token de session et résout
+    - `session_auth` (H3) : callable qui vérifie le token de session et résout
       l'identité. `None` → pas d'auth (H1/H2, dev).
-    - `wallet` (H3) : portefeuille Muse pour le métrage. `None` → pas de débit,
-      `credits_spent = n`.
+    - `wallet` (H3) : portefeuille Muse pour le métrage. `None` → pas de débit.
     """
     router = APIRouter()
 
-    @router.post("/narrate", response_model=NarrateResponse)
-    async def narrate(request: Request) -> NarrateResponse:
-        # 1. Auth (H3) — avant tout travail ; 401 si token absent/invalide.
-        claims = session_auth(request) if session_auth is not None else None
+    @router.post("/narrate")
+    async def narrate(request: Request) -> JSONResponse:
+        # 1. Auth (H3) — avant tout travail.
+        claims: SessionClaims | None = None
+        if session_auth is not None:
+            try:
+                claims = session_auth(request)
+            except HTTPException as exc:
+                return _error(401, "unauthorized", str(exc.detail))
 
-        # 2. JSON + contrat fermé (H0/H1).
+        # 2. JSON + contrat fermé (H0/H1). Le schéma EST le mur.
         try:
             body = await request.json()
         except (json.JSONDecodeError, UnicodeDecodeError):
-            raise HTTPException(status_code=422, detail="corps illisible : JSON invalide")
+            return _error(400, "bad_request", "corps illisible : JSON invalide")
         try:
             validate_request(body)
         except PacketError as exc:
-            # Le schéma EST le mur : champ inconnu / version fausse / n hors bornes.
-            raise HTTPException(status_code=422, detail=f"PacketError: {exc}")
+            if exc.location == SCHEMA_VERSION_LOCATION:
+                return _error(409, "schema_incompatible", str(exc))
+            return _error(400, "bad_request", str(exc))
 
         n = body["n"]
-        effective_n = n
 
-        # 3. Métrage (H3) — levier portefeuille bas, 402 si vide.
+        # 3. Métrage (H3) — le contrat exige EXACTEMENT n candidats, donc pas de
+        #    levier « n=1 » : si le portefeuille ne couvre pas n, on refuse (402).
         wallet_key = ""
         if wallet is not None:
             wallet_key = claims.wallet_key if claims is not None else "_anonymous"
-            balance = wallet.balance(wallet_key)
-            if balance <= 0:
-                raise HTTPException(status_code=402, detail="portefeuille Muse vide")
-            if balance < n:
-                effective_n = 1  # levier : portefeuille bas → forcer n=1
+            if wallet.balance(wallet_key) < n:
+                return _error(
+                    402, "quota_exhausted",
+                    f"portefeuille Muse insuffisant pour n={n}",
+                )
 
         # 4. Génération best-of-N. I/O bloquante (LLMNarrator) → threadpool
-        #    (règle perf-pivots-fastapi §9). ProviderError → 502 via create_app ;
-        #    le débit ci-dessous n'a alors pas lieu (aucune unité perdue).
-        texts = await run_in_threadpool(narrator.narrate, body["packet"], effective_n)
+        #    (règle perf-pivots-fastapi §9). Aucun débit sur erreur provider.
+        try:
+            texts = await run_in_threadpool(narrator.narrate, body["packet"], n)
+        except ProviderError as exc:
+            return _error(502, "provider_error", str(exc), retriable=True)
 
         # 5. Débit APRÈS génération réussie.
-        spent = effective_n
         if wallet is not None:
-            wallet.debit(wallet_key, spent)
+            wallet.debit(wallet_key, n)
 
-        return NarrateResponse(
-            candidates=[NarrateCandidate(text=t) for t in texts],
-            credits_spent=spent,
-        )
+        response = JSONResponse(content={"candidates": texts, "schema_version": 1})
+        response.headers["X-Muses-Credits-Spent"] = str(n)
+        return response
 
     return router

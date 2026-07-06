@@ -12,24 +12,30 @@ def _client(**kwargs) -> TestClient:
     return TestClient(create_app(tables=[], narrator=CannedNarrator(), **kwargs))
 
 
-def _packet_body() -> dict:
+def _request() -> dict:
     return {
-        "schema_version": 1,
         "n": 1,
         "packet": {
-            "cadre": "Une taverne.",
+            "schema_version": 1,
+            "cadre": {"lieu": "une taverne", "ambiance": None, "presents": []},
             "locuteur": {"nom": "Le Garde", "voix": "bourru"},
             "action_joueur": "Le joueur entre.",
-            "form": {"registre": "familier", "budget": 1},
+            "hearing": "il entend une menace",
+            "move": "barre la porte",
+            "revealable": [],
+            "withhold": [],
+            "form": {"registre": "sec", "budget_revelation": 0, "ratio": "equilibre"},
         },
     }
 
 
 def test_canon_smuggling_is_blocked() -> None:
-    # Cécité : aucun champ ne peut transporter du canon — schéma fermé → 422.
-    body = _packet_body()
+    # Cécité : aucun champ ne peut transporter du canon — schéma fermé → 400.
+    body = _request()
     body["packet"]["canon"] = {"secret": "le tresor est sous la dalle"}
-    assert _client().post("/narrate", json=body).status_code == 422
+    resp = _client().post("/narrate", json=body)
+    assert resp.status_code == 400
+    assert resp.json()["error"] == "bad_request"
 
 
 def test_cors_allows_configured_origin() -> None:

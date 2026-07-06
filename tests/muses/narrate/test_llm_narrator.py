@@ -1,8 +1,4 @@
-"""H2 — `LLMNarrator` avec provider factice (zéro réseau en CI).
-
-Prouve : best-of-N, cécité au canon dans le prompt construit, propagation
-d'erreur provider, et swap d'injection bout-en-bout sans toucher au router.
-"""
+"""H2 — `LLMNarrator` avec provider factice (zéro réseau en CI)."""
 
 from __future__ import annotations
 
@@ -12,7 +8,6 @@ from fastapi.testclient import TestClient
 from muses.api.server import create_app
 from muses.narrate import LLMNarrator
 from pipelines.evaluation.providers import (
-    ChatMessage,
     CompletionRequest,
     CompletionResponse,
     ProviderError,
@@ -20,8 +15,6 @@ from pipelines.evaluation.providers import (
 
 
 class FakeProvider:
-    """Provider en mémoire : renvoie un contenu fixe, capture la dernière requête."""
-
     name = "fake"
 
     def __init__(self, content: str = "Un beat de narration.") -> None:
@@ -42,64 +35,67 @@ class ExplodingProvider:
 
 def _packet() -> dict:
     return {
-        "cadre": "Une taverne enfumée au crépuscule.",
+        "schema_version": 1,
+        "cadre": {"lieu": "une taverne", "ambiance": "enfumée", "presents": []},
         "locuteur": {"nom": "Le Garde", "voix": "bourru"},
         "action_joueur": "Le joueur demande ce qu'il y a dans la cave.",
-        "revealable": ["la cave sert d'entrepôt"],
+        "hearing": "il entend une accusation",
+        "move": "se lève et barre le passage",
+        "revealable": ["la cave sert d'entrepot"],
         "withhold": ["qui a paye la rancon"],
-        "form": {"registre": "familier", "budget": 1},
+        "form": {"registre": "tendu", "budget_revelation": 1, "ratio": "equilibre"},
     }
+
+
+def _request(n: int = 2) -> dict:
+    return {"n": n, "packet": _packet()}
 
 
 def test_llm_narrator_returns_n_candidates() -> None:
     narrator = LLMNarrator(provider=FakeProvider("beat X"))
-    out = narrator.narrate(_packet(), n=3)
-    assert out == ["beat X", "beat X", "beat X"]
+    assert narrator.narrate(_packet(), n=3) == ["beat X", "beat X", "beat X"]
 
 
 def test_llm_narrator_makes_n_calls() -> None:
     fake = FakeProvider()
     LLMNarrator(provider=fake).narrate(_packet(), n=4)
-    assert len(fake.calls) == 4  # best-of-N = N générations
+    assert len(fake.calls) == 4
 
 
 def test_llm_narrator_withhold_rendered_as_label() -> None:
     prompt = LLMNarrator(provider=FakeProvider()).render_packet(_packet())
-    # L'intitulé withhold apparaît, mais sous la consigne « à TAIRE ».
     assert "qui a paye la rancon" in prompt
     assert "TAIRE" in prompt
 
 
+def test_llm_narrator_move_and_hearing_rendered() -> None:
+    prompt = LLMNarrator(provider=FakeProvider()).render_packet(_packet())
+    assert "se lève et barre le passage" in prompt   # move
+    assert "il entend une accusation" in prompt       # hearing (string)
+
+
 def test_llm_narrator_prompt_contains_no_canon() -> None:
-    # Fige l'invariant : le prompt ne contient QUE des champs du paquet.
-    # Un secret jamais fourni ne doit pas apparaître.
     prompt = LLMNarrator(provider=FakeProvider()).render_packet(_packet())
     assert "le tresor est sous la troisieme dalle" not in prompt
-    # Le prompt ne demande jamais de « tenir compte » du contenu d'un withhold.
     assert "tenir compte" not in prompt.lower()
 
 
 def test_llm_narrator_provider_error_propagates() -> None:
-    narrator = LLMNarrator(provider=ExplodingProvider())
     with pytest.raises(ProviderError):
-        narrator.narrate(_packet(), n=2)
+        LLMNarrator(provider=ExplodingProvider()).narrate(_packet(), n=2)
 
 
 def test_narrate_endpoint_with_llm_swap() -> None:
-    # Le swap d'injection marche bout-en-bout, router/contrat inchangés.
     app = create_app(tables=[], narrator=LLMNarrator(provider=FakeProvider("beat HTTP")))
-    client = TestClient(app)
-    body = {"schema_version": 1, "n": 2, "packet": _packet()}
-    resp = client.post("/narrate", json=body)
+    resp = TestClient(app).post("/narrate", json=_request(n=2))
     assert resp.status_code == 200
-    data = resp.json()
-    assert [c["text"] for c in data["candidates"]] == ["beat HTTP", "beat HTTP"]
-    assert data["credits_spent"] == 2
+    assert resp.json()["candidates"] == ["beat HTTP", "beat HTTP"]
 
 
 def test_narrate_endpoint_provider_error_is_502() -> None:
     app = create_app(tables=[], narrator=LLMNarrator(provider=ExplodingProvider()))
-    client = TestClient(app, raise_server_exceptions=False)
-    body = {"schema_version": 1, "n": 2, "packet": _packet()}
-    resp = client.post("/narrate", json=body)
-    assert resp.status_code == 502  # pas de faux 200
+    resp = TestClient(app, raise_server_exceptions=False).post("/narrate", json=_request(n=2))
+    assert resp.status_code == 502
+    body = resp.json()
+    assert body["error"] == "provider_error"
+    assert body["retriable"] is True
