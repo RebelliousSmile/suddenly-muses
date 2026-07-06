@@ -180,6 +180,24 @@ Le `Procfile` n'est pas fourni mais le `startCommand` est trivialement transposa
 | Latence p95 suggest | <50ms (StubEncoder) | <50ms | <300ms (sentence-transformer CPU) |
 | RAM idle | ~50MB | ~80MB | 500MB-1GB |
 
+## Émission de tokens Muse pour `/narrate` (H5, #89, D18)
+
+Convention `.well-known/jwks.json` : chaque instance émettrice publie ses clés
+publiques RSA à `https://<iss>/.well-known/jwks.json`, format JWK standard
+(`{"keys": [{"kid", "kty": "RSA", "use": "sig", "alg": "RS256", "n", "e"}]}`).
+Le Hub (`muses/narrate/jwks.py`) résout la clé par `iss` puis `kid` — TTL cache,
+`iss` en liste blanche vérifiée AVANT tout fetch (garde SSRF), https obligatoire
+(sauf `localhost`/`127.0.0.1`). Le Hub ne détient et ne fetch jamais de clé privée.
+
+Flux opérateur (instance émettrice → Hub) :
+
+1. Générer une paire de clés et un token de démo : `python scripts/mint_muse_token.py --sub <user> --iss <domaine-instance>` (`--key-file` pour réutiliser la même clé entre invocations, `--jwks-out`/`--token-out` pour écrire des fichiers).
+2. Publier le JWKS imprimé à `https://<domaine-instance>/.well-known/jwks.json` (statique, régénéré à chaque rotation de clé).
+3. Distribuer le token minté au client (CN) comme `Authorization: Bearer <token>`.
+4. Configurer le Hub : `MUSES_NARRATE_JWKS_ENABLED=true`, `MUSES_NARRATE_JWT_ISSUERS=<domaine-instance>`, `MUSES_NARRATE_JWT_ALGORITHM=RS256`, sans `MUSES_NARRATE_JWT_SECRET`.
+
+La clé privée ne vit que côté instance émettrice (`muses/narrate/issuer.py`, jamais importé par `muses/api/*` ni par le chemin de vérification). Voir `muses/narrate/issuer.py` (`MuseIssuer`) pour l'implémentation de référence.
+
 ## Hors périmètre
 
 - **Haute disponibilité** (réplication, failover) — D15 acte le SPOF pour le MVP.

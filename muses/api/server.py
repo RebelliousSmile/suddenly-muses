@@ -8,6 +8,8 @@ Endpoints exposés :
 - POST /v1/analyze/{consistency_scene,consistency_session,summary,federated_links}
   [signature requise]
 - GET /v1/admin/coverage — carte de couverture admin [token admin]
+- POST /v1/admin/narrate/credit — provisionnement portefeuille Muse (H5, #89)
+  [token admin] ; monté seulement si `narrate_wallet` est configuré.
 
 L'orchestrateur, l'encodeur, les stores et l'event log sont injectés à la
 création de l'app pour permettre les tests et le déploiement.
@@ -438,8 +440,14 @@ def create_app(
             ],
         )
 
-    if tables:
-        app.include_router(create_admin_router(tables=tables, admin_token=admin_token))
+    if tables or narrate_wallet is not None:
+        app.include_router(
+            create_admin_router(
+                tables=tables,
+                admin_token=admin_token,
+                narrate_wallet=narrate_wallet,
+            )
+        )
 
     # D-Hub-0 — relais narrateur /narrate, famille de routes distincte (sert CN,
     # aveugle au canon). Partage l'infra (app, rate-limit) sans la sémantique.

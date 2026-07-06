@@ -4,9 +4,18 @@ Modèle minimal : un solde entier par `wallet_key` (`iss/sub`, cf. `session.py`)
 Le débit a lieu **après** une génération réussie ; aucune unité n'est débitée
 sur erreur provider (cohérent avec `MusesUnavailable`, `muses/client.py`).
 
-⚠️ Provisionnement / recharge hors périmètre H3 : les clés inconnues reçoivent
-un `default_grant` de démarrage. La vraie économie (achat d'unités, quotas par
-instance) est un sujet produit à part.
+H5 (#89, D-89.2) — le `default_grant` de démarrage pour une clé inconnue
+n'est PAS un détail dev : c'est le seul levier qui distingue « accès réel
+provisionné » de « n'importe quel token validement signé vaut de l'argent ».
+`muses/config.py:_resolve_narrate_default_grant` en fait un défaut dépendant
+du mode (`0` en `strict`, `1000` en `off`/`stub`) ; `default_grant=0` suffit
+ici pour fermer la faille — `balance()`/`debit()` renvoient alors `0` pour
+une clé inconnue, et le contrat `/narrate` (schéma : `n >= 1`) garantit que
+`wallet.balance(key) < n` est toujours vrai avant tout crédit implicite, donc
+402 avant toute génération. Le provisionnement explicite passe par
+`credit()` (utilisable directement, ou via l'endpoint admin optionnel
+`POST /v1/admin/narrate/credit`, cf. `muses/api/admin.py`). La vraie économie
+(achat d'unités, quotas par instance) reste un sujet produit à part.
 
 SQLite, comme les autres stores du Hub (WAL activé par `create_app`).
 """
