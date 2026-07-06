@@ -4,6 +4,14 @@
 ml.md § Carte de couverture). Renvoie, par cellule peuplée, le nombre de
 rows par niveau et la date de dernière contribution.
 
+`/v1/admin/narrate/credit` (H5, #89, Phase 3, optionnel) : provisionnement
+explicite de crédits Muse pour un `wallet_key`, réutilisant `WalletStore.
+credit()` (`muses/narrate/wallet.py`). Monté uniquement quand un portefeuille
+`/narrate` est configuré (`narrate_wallet` non `None`) — c'est le pendant
+opérationnel du contrôle d'accès réel introduit par `default_grant=0` en
+mode strict (D-89.2) : sans provisionnement, un token validement signé mais
+inconnu du portefeuille reçoit 402, jamais de crédit gratuit.
+
 Pour le MVP, l'auth admin est un placeholder (header `X-Admin-Token`
 attendu et comparé à un secret). En production (M4), passera par auth
 ActivityPub avec acteurs admin déclarés.
@@ -16,7 +24,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from fastapi import APIRouter, Header, HTTPException, status
+from pydantic import BaseModel
 
+from muses.narrate.wallet import WalletStore
 from muses.schemas.tags import AXIS_NAMES
 from muses.tables.jsonl_io import iter_rows
 
@@ -71,11 +81,34 @@ def compute_coverage(tables: list[Path]) -> list[CoverageCell]:
     return list(cells.values())
 
 
-def create_admin_router(*, tables: list[Path], admin_token: str | None = None) -> APIRouter:
+class NarrateCreditRequest(BaseModel):
+    """Corps du `POST /v1/admin/narrate/credit` — provisionnement H5 (#89)."""
+
+    wallet_key: str
+    amount: int
+
+
+class NarrateCreditResponse(BaseModel):
+    """Réponse du `POST /v1/admin/narrate/credit`."""
+
+    wallet_key: str
+    balance: int
+
+
+def create_admin_router(
+    *,
+    tables: list[Path],
+    admin_token: str | None = None,
+    narrate_wallet: WalletStore | None = None,
+) -> APIRouter:
     """Construit le router admin.
 
     `admin_token` peut être None en dev/tests : l'auth est alors un no-op
     (permet d'utiliser l'endpoint sans header). En prod il doit être défini.
+
+    `narrate_wallet` (H5, #89, Phase 3, optionnel) : si fourni, monte
+    `POST /narrate/credit` pour provisionner un `wallet_key` explicitement
+    (mêmes garde-fous d'auth que `/coverage`). Absent → route non montée.
     """
     router = APIRouter(prefix="/v1/admin")
 
@@ -104,5 +137,21 @@ def create_admin_router(*, tables: list[Path], admin_token: str | None = None) -
             ],
             "total_cells": len(cells),
         }
+
+    if narrate_wallet is not None:
+
+        @router.post("/narrate/credit", response_model=NarrateCreditResponse)
+        def narrate_credit(
+            req: NarrateCreditRequest,
+            token: str | None = Header(None, alias="X-Admin-Token"),
+        ) -> NarrateCreditResponse:
+            _check_admin(token)
+            if req.amount < 0:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="amount must be >= 0",
+                )
+            new_balance = narrate_wallet.credit(req.wallet_key, req.amount)
+            return NarrateCreditResponse(wallet_key=req.wallet_key, balance=new_balance)
 
     return router

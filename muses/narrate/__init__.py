@@ -4,6 +4,17 @@ Famille de routes distincte de `/v1/suggest|analyze/*` : aveugle au canon,
 sert CN, partage l'infra Hub sans partager la sémantique.
 """
 
+from muses.narrate.issuer import (
+    MuseIssuer,
+    build_jwks_document,
+    generate_keypair,
+    mint_token,
+)
+from muses.narrate.jwks import (
+    JwksKeyResolver,
+    JwksResolutionError,
+    make_jwks_key_lookup,
+)
 from muses.narrate.narrator import CannedNarrator, LLMNarrator, Narrator
 from muses.narrate.router import create_narrate_router
 from muses.narrate.schema import (
@@ -42,4 +53,11 @@ __all__ = [
     "StubSessionVerifier",
     "make_session_dependency",
     "WalletStore",
+    "JwksKeyResolver",
+    "JwksResolutionError",
+    "make_jwks_key_lookup",
+    "MuseIssuer",
+    "build_jwks_document",
+    "generate_keypair",
+    "mint_token",
 ]

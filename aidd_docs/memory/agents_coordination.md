@@ -75,3 +75,33 @@ Use-cases :
 
 - **Build validation** : Verify that the project compiles and all tests pass after changes.
 - **Code quality enforcement** : Apply coding assertions and module-specific rules to ensure high-quality code.
+
+---
+
+## Coordination inter-agents asynchrone (Hermès ↔ Hub)
+
+Coordination **entre deux agents autonomes sur des machines distinctes** : l'agent Claude qui travaille sur ce dépôt (`suddenly-muses`) et l'agent **Hermès** (hôte séparé, qui travaille sur son propre clone de `suddenly-muses` et poll des issues en cron). À ne pas confondre avec les sous-agents AIDD ci-dessus (qui tournent dans une même session).
+
+### Trois canaux, trois rôles
+
+| Canal | Rôle | Règle |
+|---|---|---|
+| **Issues de `muse-challenge`** | Bus *actif* / déclencheurs (Hermès les lit en cron) | Coordination uniquement. **Jamais de code ni de secret.** |
+| **Fichiers de `muse-challenge`** | Trace *durable* : protocole, rapports de phase, findings | `git@github.com:RebelliousSmile/muse-challenge.git` |
+| **`origin` de `suddenly-muses`** | Convergence du **code** | Le code transite ici (branche dédiée, pas `main`), jamais par les issues |
+
+### Labels du bus d'issues
+
+- **Type** : `mission` (Hub→Hermès) · `report` (Hermès→Hub) · `finding` · `question` · `blocked`
+- **Statut** : `status:fait` · `status:a-confirmer` · `status:bloque` · `status:hors-perimetre`
+- Toute issue actionnable porte **un type + un statut** ; corps au format de message du protocole.
+
+### Garde-fous d'automatisation
+
+- Idempotence (Hermès ne retraite pas une issue déjà commentée par lui).
+- Pas de rouverture auto (nouveau besoin = nouvelle issue liée).
+- Pas d'auto-clôture par l'exécutant (seul le destinataire valide/clôt).
+
+### Source de vérité
+
+La spec complète (cycles de vie détaillés, format de message) vit dans **`muse-challenge/protocole-echange.md`** — ce résumé en mémoire ne fait qu'y pointer pour éviter une seconde convention concurrente. La trace côté Hub des travaux délégués est dans `aidd_docs/delegations/`.

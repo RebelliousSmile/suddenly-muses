@@ -67,28 +67,52 @@ class StubSessionVerifier:
         return _claims_from_payload(payload)
 
 
+KeyLookup = Callable[[dict, dict], "tuple[str | bytes, str]"]
+"""Résout `(header non vérifié, claims non vérifiées) -> (clé, algorithme)`.
+
+Appelé APRÈS un décodage non-vérifié (pour lire `kid`/`iss`) et AVANT le
+`jwt.decode` réel qui vérifie la signature. Doit être synchrone : le fetch
+réseau éventuel (résolution JWK par `iss`, cf. `muses/narrate/jwks.py`) tourne
+dans un threadpool côté appelant (`router.py`), pas dans l'event loop.
+"""
+
+
 class JwtSessionVerifier:
     """Vérifie réellement le JWT (signature + exp).
 
-    - HS256 : `key` = secret partagé (dev/CI).
-    - RS256 : `key` = clé publique PEM (prod ; en attendant la résolution JWK
-      par `iss` décrite dans D18, à brancher via `key_lookup`).
+    Deux sources de clé mutuellement exclusives :
+    - `key` : secret partagé HS256 (dev/CI) ou clé publique PEM statique.
+    - `key_lookup` : résolution dynamique par `iss`/`kid` (JWK, D18) — voir
+      `muses/narrate/jwks.py:make_jwks_key_lookup`. Prioritaire sur `key` si
+      les deux sont fournis.
     """
 
     def __init__(
         self,
         *,
-        key: str | bytes,
+        key: str | bytes | None = None,
+        key_lookup: KeyLookup | None = None,
         algorithms: list[str] | None = None,
         issuers: list[str] | None = None,
         leeway_seconds: int = 10,
     ) -> None:
+        if key is None and key_lookup is None:
+            raise ValueError(
+                "JwtSessionVerifier requiert soit `key` (secret/PEM statique) "
+                "soit `key_lookup` (résolution JWK par iss)."
+            )
         self._key = key
+        self._key_lookup = key_lookup
         self._algorithms = algorithms or ["HS256"]
         self._issuers = set(issuers) if issuers else None
         self._leeway = leeway_seconds
 
     def verify(self, token: str) -> SessionClaims:
+        if self._key_lookup is not None:
+            return self._verify_with_lookup(token)
+        return self._verify_with_static_key(token)
+
+    def _verify_with_static_key(self, token: str) -> SessionClaims:
         try:
             payload = jwt.decode(
                 token,
@@ -99,6 +123,43 @@ class JwtSessionVerifier:
             )
         except jwt.PyJWTError as exc:
             raise SessionTokenError(f"token invalide: {exc}") from exc
+        claims = _claims_from_payload(payload)
+        if self._issuers is not None and claims.issuer not in self._issuers:
+            raise SessionTokenError(f"issuer non autorisé: {claims.issuer}")
+        return claims
+
+    def _verify_with_lookup(self, token: str) -> SessionClaims:
+        assert self._key_lookup is not None
+        try:
+            header = jwt.get_unverified_header(token)
+        except jwt.PyJWTError as exc:
+            raise SessionTokenError(f"en-tête token illisible: {exc}") from exc
+        try:
+            unverified_claims = jwt.decode(token, options={"verify_signature": False})
+        except jwt.PyJWTError as exc:
+            raise SessionTokenError(f"token non décodable: {exc}") from exc
+
+        try:
+            key, algorithm = self._key_lookup(header, unverified_claims)
+        except SessionTokenError:
+            raise
+        except Exception as exc:  # résolveur JWKS (réseau, kid/iss inconnus, ...)
+            raise SessionTokenError(f"résolution de clé impossible: {exc}") from exc
+
+        if algorithm not in self._algorithms:
+            raise SessionTokenError(f"algorithme {algorithm!r} non autorisé")
+
+        try:
+            payload = jwt.decode(
+                token,
+                key,
+                algorithms=[algorithm],
+                leeway=self._leeway,
+                options={"require": ["sub", "iss", "exp"]},
+            )
+        except jwt.PyJWTError as exc:
+            raise SessionTokenError(f"token invalide: {exc}") from exc
+
         claims = _claims_from_payload(payload)
         if self._issuers is not None and claims.issuer not in self._issuers:
             raise SessionTokenError(f"issuer non autorisé: {claims.issuer}")

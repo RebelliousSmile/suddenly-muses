@@ -65,7 +65,10 @@ def create_narrate_router(
         claims: SessionClaims | None = None
         if session_auth is not None:
             try:
-                claims = session_auth(request)
+                # session_auth peut résoudre une clé JWK par réseau (H5) — reste
+                # synchrone, donc dispatché en threadpool pour ne pas bloquer
+                # l'event loop (règle perf-pivots-fastapi §9).
+                claims = await run_in_threadpool(session_auth, request)
             except HTTPException as exc:
                 return _error(401, "unauthorized", str(exc.detail))
 

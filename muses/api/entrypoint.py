@@ -42,12 +42,29 @@ def _build_narrate_auth(settings: Settings):
         JwtSessionVerifier,
         StubSessionVerifier,
         WalletStore,
+        make_jwks_key_lookup,
         make_session_dependency,
     )
 
     if settings.narrate_auth_mode == "stub":
         verifier = StubSessionVerifier()
-    else:  # strict — secret validé par load_config
+    elif settings.narrate_jwks_enabled:  # strict — JWK résolu par iss (D18), pas de secret
+        verifier = JwtSessionVerifier(
+            key_lookup=make_jwks_key_lookup(
+                issuers=settings.narrate_jwt_issuers,
+                cache_ttl_seconds=settings.narrate_jwks_cache_ttl_seconds,
+            ),
+            # Revue de code #89 (avertissement) : `jwks.py:key_lookup` renvoie
+            # toujours "RS256" (clés publiques RSA résolues depuis le JWK) —
+            # jamais `settings.narrate_jwt_algorithm` (qui ne concerne que la
+            # branche secret statique ci-dessous, défaut "HS256"). Réutiliser
+            # ce réglage ici créerait un mismatch algorithmique silencieux si
+            # l'opérateur oublie MUSES_NARRATE_JWT_ALGORITHM=RS256 (panne
+            # d'auth totale : `session.py` rejette alors chaque token).
+            algorithms=["RS256"],
+            issuers=settings.narrate_jwt_issuers,
+        )
+    else:  # strict — secret partagé validé par load_config (HS256/dev ou PEM statique)
         verifier = JwtSessionVerifier(
             key=settings.narrate_jwt_secret,  # type: ignore[arg-type]
             algorithms=[settings.narrate_jwt_algorithm],

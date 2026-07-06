@@ -1,10 +1,15 @@
-"""Tests T35 — endpoint /v1/admin/coverage + module compute_coverage."""
+"""Tests T35 — endpoint /v1/admin/coverage + module compute_coverage.
+
+H5 (#89, Phase 3) — endpoint optionnel /v1/admin/narrate/credit, réutilisant
+le garde d'auth déjà couvert ci-dessous pour /coverage.
+"""
 
 from fastapi.testclient import TestClient
 
 from muses.api.admin import compute_coverage
 from muses.api.server import create_app
 from muses.ingestion.pipeline import TablePaths, ingest
+from muses.narrate import CannedNarrator, WalletStore
 from muses.tables.embeddings import StubEncoder
 
 
@@ -59,3 +64,71 @@ def test_admin_endpoint_requires_token_when_set(tmp_path):
     assert resp.status_code == 403
     resp = client.get("/v1/admin/coverage", headers={"X-Admin-Token": "s3cret"})
     assert resp.status_code == 200
+
+
+def test_narrate_credit_endpoint_not_mounted_without_wallet(tmp_path):
+    """Sans `narrate_wallet` configuré, la route n'existe pas (404, pas 403)."""
+    app = create_app(tables=[], admin_token="s3cret")
+    client = TestClient(app)
+    resp = client.post(
+        "/v1/admin/narrate/credit",
+        json={"wallet_key": "muse.example/u1", "amount": 5},
+        headers={"X-Admin-Token": "s3cret"},
+    )
+    assert resp.status_code == 404
+
+
+def test_narrate_credit_endpoint_requires_token_when_set(tmp_path):
+    wallet = WalletStore(tmp_path / "w.sqlite", default_grant=0)
+    app = create_app(
+        tables=[], narrator=CannedNarrator(), narrate_wallet=wallet, admin_token="s3cret",
+    )
+    client = TestClient(app)
+    body = {"wallet_key": "muse.example/u1", "amount": 5}
+
+    resp = client.post("/v1/admin/narrate/credit", json=body)
+    assert resp.status_code == 403
+
+    resp = client.post(
+        "/v1/admin/narrate/credit", json=body, headers={"X-Admin-Token": "wrong"}
+    )
+    assert resp.status_code == 403
+
+    resp = client.post(
+        "/v1/admin/narrate/credit", json=body, headers={"X-Admin-Token": "s3cret"}
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data == {"wallet_key": "muse.example/u1", "balance": 5}
+    assert wallet.balance("muse.example/u1") == 5
+
+
+def test_narrate_credit_endpoint_open_when_admin_disabled(tmp_path):
+    """Cohérent avec /coverage : admin_token=None -> pas d'auth (dev/tests)."""
+    wallet = WalletStore(tmp_path / "w.sqlite", default_grant=0)
+    app = create_app(
+        tables=[], narrator=CannedNarrator(), narrate_wallet=wallet, admin_token=None,
+    )
+    client = TestClient(app)
+
+    resp = client.post(
+        "/v1/admin/narrate/credit",
+        json={"wallet_key": "muse.example/u1", "amount": 7},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"wallet_key": "muse.example/u1", "balance": 7}
+
+
+def test_narrate_credit_endpoint_rejects_negative_amount(tmp_path):
+    wallet = WalletStore(tmp_path / "w.sqlite", default_grant=0)
+    app = create_app(
+        tables=[], narrator=CannedNarrator(), narrate_wallet=wallet, admin_token=None,
+    )
+    client = TestClient(app)
+
+    resp = client.post(
+        "/v1/admin/narrate/credit",
+        json={"wallet_key": "muse.example/u1", "amount": -1},
+    )
+    assert resp.status_code == 400
+    assert wallet.balance("muse.example/u1") == 0
