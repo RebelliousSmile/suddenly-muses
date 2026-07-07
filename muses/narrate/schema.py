@@ -11,6 +11,7 @@ La RACINE du schéma valide le corps de `POST /narrate` (`{ packet, n }`). Le
 
 from __future__ import annotations
 
+import hashlib
 import json
 from functools import lru_cache
 from pathlib import Path
@@ -19,6 +20,8 @@ from pathlib import Path
 EXPECTED_PACKET_SCHEMA_VERSION = 1
 
 _SCHEMA_PATH = Path(__file__).parent / "contract" / "schema.json"
+# Reçu de provenance (Hub-B) : de quel commit CN provient `schema.json`.
+_PROVENANCE_PATH = Path(__file__).parent / "contract" / "PROVENANCE.json"
 _PLACEHOLDER_KEY = "x-suddenly-placeholder"
 
 # Chemin (dans l'instance) du champ de version — sert à distinguer une
@@ -54,6 +57,30 @@ def declared_schema_version() -> int | None:
     packet = load_schema().get("$defs", {}).get("ScenePacket", {})
     const = packet.get("properties", {}).get("schema_version", {}).get("const")
     return const if isinstance(const, int) else None
+
+
+@lru_cache(maxsize=1)
+def load_provenance() -> dict:
+    """Charge le reçu de provenance du contrat (Hub-B), mémoïsé.
+
+    Décrit de quel commit CN provient `schema.json`. Écrit automatiquement par
+    `scripts/import_narrate_contract.sh` — jamais à la main.
+    """
+    return json.loads(_PROVENANCE_PATH.read_text(encoding="utf-8"))
+
+
+def schema_sha256() -> str:
+    """Hash SHA-256 du `schema.json` réellement présent sur le disque."""
+    return hashlib.sha256(_SCHEMA_PATH.read_bytes()).hexdigest()
+
+
+def provenance_matches_schema() -> bool:
+    """True si le reçu décrit bien le `schema.json` courant (pas de dérive).
+
+    Garde-fou : si quelqu'un édite `schema.json` sans repasser par le script
+    d'import, le hash enregistré dans le reçu ne correspond plus — le reçu ment.
+    """
+    return load_provenance().get("schema_sha256") == schema_sha256()
 
 
 @lru_cache(maxsize=1)

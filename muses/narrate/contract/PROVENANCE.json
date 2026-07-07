@@ -1,0 +1,13 @@
+{
+  "receipt_version": 1,
+  "description": "Reçu de provenance du contrat /narrate importé de CN (cn-core). GÉNÉRÉ — ne pas éditer à la main : régénérer via scripts/import_narrate_contract.sh. Voir contract/README.md.",
+  "artifact": "schema.json",
+  "source_repo": "unknown",
+  "source_path": "src/scripts/narrative/generated/schema.json",
+  "source_commit": "unknown",
+  "source_commit_date": "unknown",
+  "imported_at": "2026-07-06T06:21:14+00:00",
+  "schema_sha256": "b609d8e50c9f4a350ffc8c9429329a470905a048daae3dd08c490d9f622c5c44",
+  "backfill_required": true,
+  "note": "Schéma importé en PR #83 (commit Hub a8c19a8) sans reçu de provenance — dette Hub-B. Le SHA du commit CN source n'a pas été capturé à l'époque et sera renseigné au prochain import scripté (backfill_required passe à false). `imported_at` reflète le commit Hub qui a déposé le schéma, faute de mieux."
+}
