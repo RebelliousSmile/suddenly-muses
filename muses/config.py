@@ -205,13 +205,13 @@ def _validate(s: Settings) -> None:
                 "Sinon /v1/admin/coverage n'aurait aucune protection."
             )
         if s.signature_mode == "stub":
-            # Avertit fort mais ne bloque pas — la vérif crypto réelle peut
-            # ne pas être encore implémentée. Log très visible.
-            logging.getLogger("muses.config").warning(
-                "MUSES_SIGNATURE_MODE=stub avec bind public %s:%d — "
-                "les signatures ActivityPub ne sont PAS vérifiées cryptographiquement. "
-                "Ne pas utiliser en production ouverte.",
-                s.bind_host, s.bind_port,
+            # Fail-fast (HUB-F1 #90) : un bind public avec signatures non
+            # vérifiées cryptographiquement accepterait n'importe quel keyId
+            # forgé. Refus de démarrer.
+            raise ConfigError(
+                f"MUSES_SIGNATURE_MODE=stub interdit sur bind public "
+                f"({s.bind_host}:{s.bind_port}) — les signatures ActivityPub ne "
+                "seraient PAS vérifiées. Passe en MUSES_SIGNATURE_MODE=strict."
             )
 
     if (

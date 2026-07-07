@@ -46,9 +46,19 @@ def test_public_bind_without_admin_token_refused(clean_env, monkeypatch):
 def test_public_bind_with_admin_token_ok(clean_env, monkeypatch):
     monkeypatch.setenv("MUSES_BIND_HOST", "0.0.0.0")
     monkeypatch.setenv("MUSES_ADMIN_TOKEN", "secret")
+    monkeypatch.setenv("MUSES_SIGNATURE_MODE", "strict")  # requis en bind public (HUB-F1)
     settings = load_config()
     assert settings.bind_host == "0.0.0.0"
     assert settings.admin_token == "secret"
+
+
+def test_public_bind_with_stub_signature_refused(clean_env, monkeypatch):
+    # HUB-F1 (#90) : stub en bind public = signatures non vérifiées → refus.
+    monkeypatch.setenv("MUSES_BIND_HOST", "0.0.0.0")
+    monkeypatch.setenv("MUSES_ADMIN_TOKEN", "secret")
+    monkeypatch.setenv("MUSES_SIGNATURE_MODE", "stub")
+    with pytest.raises(ConfigError, match="stub"):
+        load_config()
 
 
 def test_missing_table_dir_refused(clean_env, monkeypatch, tmp_path):
