@@ -45,6 +45,23 @@ def _error(status: int, error: str, detail: str, *, retriable: bool = False) -> 
     )
 
 
+def packet_with_language(body: dict) -> dict:
+    """Résout le placement du futur champ CN `language` (Hub-C #93).
+
+    Prépare les DEUX placements possibles sans en présumer (le narrateur ne voit
+    que le paquet) :
+    - `language` au niveau enveloppe (`NarrateRequest.language`) → recopié dans
+      le paquet, sans muter l'original ;
+    - `language` déjà dans le paquet → laissé tel quel.
+    No-op tant que le schéma fermé vendorisé n'autorise aucun des deux (`body`
+    ne peut alors pas le porter). Le champ décrit la forme, pas le canon.
+    """
+    packet = body["packet"]
+    if "language" in body and "language" not in packet:
+        return {**packet, "language": body["language"]}
+    return packet
+
+
 def create_narrate_router(
     narrator: Narrator,
     *,
@@ -99,8 +116,12 @@ def create_narrate_router(
 
         # 4. Génération best-of-N. I/O bloquante (LLMNarrator) → threadpool
         #    (règle perf-pivots-fastapi §9). Aucun débit sur erreur provider.
+        #    `packet_with_language` prépare le champ CN `language` (Hub-C #93) ;
+        #    no-op tant que le schéma vendorisé ne l'autorise pas.
         try:
-            texts = await run_in_threadpool(narrator.narrate, body["packet"], n)
+            texts = await run_in_threadpool(
+                narrator.narrate, packet_with_language(body), n
+            )
         except ProviderError as exc:
             return _error(502, "provider_error", str(exc), retriable=True)
 

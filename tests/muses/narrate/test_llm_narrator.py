@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from muses.api.server import create_app
 from muses.narrate import LLMNarrator
+from muses.narrate.router import packet_with_language
 from pipelines.evaluation.providers import (
     CompletionRequest,
     CompletionResponse,
@@ -83,6 +84,58 @@ def test_llm_narrator_prompt_contains_no_canon() -> None:
 def test_llm_narrator_provider_error_propagates() -> None:
     with pytest.raises(ProviderError):
         LLMNarrator(provider=ExplodingProvider()).narrate(_packet(), n=2)
+
+
+# --- Préparé pour les champs CN à venir (Hub-C #93) : language, rapport -------
+# Le narrateur opère sur des dicts, donc ces tests exercent le câblage AVANT que
+# le schéma vendorisé n'autorise les champs (la garde fermée les bloquerait
+# sinon). Ils prouvent que l'activation sera immédiate à la vendorisation.
+
+
+def test_language_absent_leaves_prompt_unchanged() -> None:
+    # Dégradation propre : sans `language`, aucune ligne de langue n'apparaît.
+    prompt = LLMNarrator(provider=FakeProvider()).render_packet(_packet())
+    assert "Langue de rédaction" not in prompt
+
+
+def test_language_present_drives_prompt() -> None:
+    packet = {**_packet(), "language": "en"}
+    prompt = LLMNarrator(provider=FakeProvider()).render_packet(packet)
+    assert "Langue de rédaction : en" in prompt
+
+
+def test_rapport_closure_rendered_verbatim() -> None:
+    # `closure` (variant RapportKind) atteint le prompt tel quel : pas de défaut
+    # silencieux, pas d'enum figé côté Hub.
+    packet = {**_packet(), "rapport": "closure"}
+    prompt = LLMNarrator(provider=FakeProvider()).render_packet(packet)
+    assert "closure" in prompt
+
+
+def test_rapport_absent_leaves_prompt_unchanged() -> None:
+    prompt = LLMNarrator(provider=FakeProvider()).render_packet(_packet())
+    assert "Nature du rapport" not in prompt
+
+
+def test_router_forwards_envelope_language_into_packet() -> None:
+    # Placement enveloppe (`NarrateRequest.language`) : le helper du router
+    # recopie le champ dans le paquet, sans muter l'original.
+    body = {"n": 2, "packet": _packet(), "language": "fr-CA"}
+    resolved = packet_with_language(body)
+    assert resolved["language"] == "fr-CA"
+    assert "language" not in body["packet"]  # original intact
+
+
+def test_router_language_in_packet_left_untouched() -> None:
+    # Placement paquet : rien à forwarder, le paquet est renvoyé tel quel.
+    body = {"n": 2, "packet": {**_packet(), "language": "de"}}
+    resolved = packet_with_language(body)
+    assert resolved["language"] == "de"
+
+
+def test_router_no_language_is_noop() -> None:
+    body = {"n": 2, "packet": _packet()}
+    assert "language" not in packet_with_language(body)
 
 
 def test_narrate_endpoint_with_llm_swap() -> None:

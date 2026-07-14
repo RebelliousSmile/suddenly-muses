@@ -114,8 +114,30 @@ class LLMNarrator:
         Tolérant aux deux formes de paquet (placeholder Hub et schéma CN réel) :
         `cadre` str ou objet, `form.budget`/`budget_revelation`,
         `form.shapes_interdites`/`interdit_shape`.
+
+        Préparé pour deux champs CN à venir (Hub-C #93), consommés dès qu'ils
+        apparaissent dans le schéma vendorisé, ignorés tant qu'ils sont absents :
+        `language` (BCP-47, langue de rédaction) et `rapport` (variant
+        `RapportKind`, ex. `closure`). Les deux décrivent la FORME, pas le canon
+        — le narrateur reste aveugle. Ils ne sont PAS hard-typés ici (invariant
+        #4) : `language` est repris tel quel, `rapport` est rendu VERBATIM, donc
+        n'importe quel variant atteint le prompt sans « défaut silencieux ».
         """
         lines: list[str] = []
+
+        # Langue de rédaction. Absente aujourd'hui (hors schéma) → le modèle
+        # infère comme avant ; présente → elle pilote la langue sans devinette.
+        language = packet.get("language")
+        if language:
+            lines.append(
+                f"Langue de rédaction : {language} — rends la narration dans cette langue."
+            )
+
+        # Nature du rapport (RapportKind). Rendu verbatim : `closure` ou tout
+        # futur variant est reflété tel quel, aucun enum figé côté Hub.
+        rapport = packet.get("rapport")
+        if rapport:
+            lines.append(f"Nature du rapport (beat) : {rapport}")
 
         cadre = packet.get("cadre")
         if isinstance(cadre, dict):
